@@ -9,21 +9,27 @@ Run from repo root:
 
 from __future__ import annotations
 
+import hashlib
 import json
-import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _id() -> str:
-    return uuid.uuid4().hex[:8]
+def _id(kind: str, source: str) -> str:
+    """Deterministic 8-char cell id derived from kind + source.
+
+    Stable across regeneration so reruns of this script only diff cells whose
+    content actually changed.
+    """
+    h = hashlib.sha1(f"{kind}\0{source}".encode("utf-8")).hexdigest()
+    return h[:8]
 
 
 def md(source: str) -> dict:
     return {
         "cell_type": "markdown",
-        "id": _id(),
+        "id": _id("markdown", source),
         "metadata": {},
         "source": source.splitlines(keepends=True),
     }
@@ -32,7 +38,7 @@ def md(source: str) -> dict:
 def code(source: str) -> dict:
     return {
         "cell_type": "code",
-        "id": _id(),
+        "id": _id("code", source),
         "metadata": {},
         "execution_count": None,
         "outputs": [],

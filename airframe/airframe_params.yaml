@@ -11,10 +11,11 @@ airframe:
 # Fixed component masses used by the mass budget.
 # Parametric components (motors, ESCs, props, battery, payload) are NOT here —
 # they live in the relevant notebook inputs or in payload_manifest.yaml.
+# The Orin Nano is sourced from payload_manifest.yaml (always_on) so it is
+# intentionally absent here to avoid double-counting.
 fixed_components_g:
   frame: 2000
   flight_controller_pixhawk_6x: 70
-  companion_orin_nano_carrier: 350
   rtk_holybro_h_rtk_f9p: 100
   rc_receiver_elrs: 15
   wiring_connectors: 200
