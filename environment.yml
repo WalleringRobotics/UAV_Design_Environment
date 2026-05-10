@@ -1,0 +1,20 @@
+name: uav-design
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - jupyter
+  - jupyterlab
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - seaborn
+  - pyyaml
+  - pip
+  - pip:
+    - openmdao>=3.28
+    - plotly
+    - ipywidgets
+    - git+https://github.com/sobester/ADRpy
