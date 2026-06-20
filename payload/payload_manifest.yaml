@@ -1,0 +1,48 @@
+# Modular payload bay manifest.
+# `always_on: true` components are always part of mass + power totals.
+# All other entries are candidates for swap-bay configurations
+# (see payload/06_payload_trades.ipynb).
+
+payloads:
+  stereo_cam:
+    mass_g: 200
+    power_w: 5
+    volume_cc: 150
+    interface: USB3
+
+  orin_nano:
+    mass_g: 350
+    power_w: 15
+    volume_cc: 400
+    interface: internal
+    always_on: true
+
+  livox_mid360:
+    mass_g: 265
+    power_w: 9
+    volume_cc: 300
+    interface: ethernet
+
+  flir_boson_plus:
+    mass_g: 95
+    power_w: 2.5
+    volume_cc: 80
+    interface: USB3
+
+  micasense_altum_pt:
+    mass_g: 410
+    power_w: 8
+    volume_cc: 500
+    interface: ethernet
+
+  global_shutter_rgb:
+    mass_g: 150
+    power_w: 4
+    volume_cc: 120
+    interface: USB3
+
+# Configuration limits enforced by the trade study notebook.
+limits:
+  max_simultaneous_swap_bays: 2
+  max_payload_mass_g: 1500
+  max_payload_power_w: 40
