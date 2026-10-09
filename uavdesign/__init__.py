@@ -9,9 +9,15 @@ Platform-agnostic modules (used by every platform under ``platforms/``):
 * :mod:`uavdesign.propulsion` — rotor (hover) and propeller (cruise) power,
   shaft -> electrical conversion
 
-All quantities are SI unless the variable name says otherwise.
+Fixed-wing specific:
+
+* :mod:`uavdesign.aero` — wing geometry/MAC/static margin, drag polar,
+  constraint analysis
+
+All quantities are SI unless the variable name says otherwise (wing geometry
+is in mm, matching how small planforms are drawn).
 """
 
-from . import atmosphere, endurance, mass, power, propulsion
+from . import aero, atmosphere, endurance, mass, power, propulsion
 
-__all__ = ["atmosphere", "endurance", "mass", "power", "propulsion"]
+__all__ = ["aero", "atmosphere", "endurance", "mass", "power", "propulsion"]

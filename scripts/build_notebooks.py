@@ -6,7 +6,7 @@ content lives in `scripts/nbdefs/<platform>.py`.
 
 Run from repo root:
     python scripts/build_notebooks.py              # all platforms
-    python scripts/build_notebooks.py multirotor   # one platform
+    python scripts/build_notebooks.py flying_wing  # one platform
 """
 
 from __future__ import annotations
@@ -18,11 +18,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from nbdefs import multirotor  # noqa: E402
+from nbdefs import flying_wing, multirotor  # noqa: E402
 from nbdefs._nb import notebook  # noqa: E402
 
 PLATFORMS = {
     "multirotor": multirotor.NOTEBOOKS,
+    "flying_wing": flying_wing.NOTEBOOKS,
 }
 
 

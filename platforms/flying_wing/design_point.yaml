@@ -1,0 +1,45 @@
+# Flying wing design point.
+# Shared site/mission parameters: mission/mission_params.yaml
+
+design_point:
+  target_auw_kg: 0.90
+  static_margin: 0.06          # fraction of MAC (calculator: 1 % expert .. 10 % beginner)
+
+aero:
+  # Parabolic polar CD = CD0 + CL^2 / (pi AR e). Placeholders until an
+  # XFLR5/AVL polar exists for the chosen reflexed section.
+  cd0: 0.025
+  oswald_e: 0.80
+  cl_max: 0.70                 # reflexed section, trimmed; calculator default 1.0 is optimistic
+  cl_max_sweep: [0.6, 0.7, 0.8, 0.9, 1.0]
+
+performance:
+  cruise_speed_m_s: 16.0
+  climb_speed_m_s: 14.0
+  climb_rate_m_s: 3.0
+  turn_speed_m_s: 16.0
+  turn_bank_deg: 45
+  max_stall_speed_m_s: 13.0    # landing / low-speed handling limit
+  launch_speed_m_s: 15.0       # hand-launch exit speed
+  launch_margin: 1.20          # launch at >= 1.2 Vs
+  target_endurance_min: 45
+
+propulsion:
+  prop_efficiency: 0.60
+  motor_efficiency: 0.80
+  esc_efficiency: 0.95
+  avionics_power_w: 3.0        # FC + GNSS + RX + servos average
+
+battery:
+  cells_series: 3
+  nominal_cell_v: 3.6          # Li-ion 21700
+  capacity_ah: 5.0
+  mass_g: 210
+  peukert_exponent: 1.05
+  usable_fraction: 0.80
+  capacity_sweep_ah: [2.5, 10.0]  # pack mass scales with the baseline pack's Wh/kg
+
+# Payloads from the shared payload/payload_manifest.yaml.
+# The multirotor's always_on stack (Orin Nano) is excluded on this airframe.
+payloads: []
+payload_x_mm: 60               # bay position used for any listed payload

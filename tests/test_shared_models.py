@@ -44,6 +44,18 @@ def test_multirotor_budget_still_loads():
     assert "payload:global_shutter_rgb" in mb.components_g
 
 
+def test_flying_wing_budget_skips_always_on_and_has_positions():
+    mb = MassBudget.from_yaml(
+        ROOT / "platforms" / "flying_wing" / "airframe_params.yaml",
+        ROOT / "payload" / "payload_manifest.yaml",
+        active_payloads=[],
+        include_always_on=False,
+    )
+    assert not any(k.startswith("payload:") for k in mb.components_g)
+    assert set(mb.components_g) == set(mb.positions_mm)
+    mb.cg_x_mm()  # all positioned
+
+
 def test_unknown_payload_rejected():
     with pytest.raises(KeyError):
         MassBudget.from_yaml(
