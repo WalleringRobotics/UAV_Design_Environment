@@ -1,0 +1,9 @@
+# Multirotor (Tarot X6) design point.
+# Shared site/mission parameters: mission/mission_params.yaml
+target_hover_endurance_min: 20
+
+design_point:
+  target_auw_kg: 6.5
+  hover_throttle_fraction: 0.60
+  thrust_to_weight_ratio: 2.0
+  safety_factor: 1.15

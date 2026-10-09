@@ -13,7 +13,11 @@ dependencies:
   - seaborn
   - pyyaml
   - pip
+  - pytest
+  - nbclient
+  - ipykernel
   - pip:
+    - -e .
     - openmdao>=3.28
     - plotly
     - ipywidgets

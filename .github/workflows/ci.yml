@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[test]"
+      - name: Notebooks are in sync with scripts/nbdefs
+        run: |
+          python scripts/build_notebooks.py
+          git diff --exit-code -- platforms
+      - name: Tests (models + every notebook runs)
+        env:
+          MPLBACKEND: Agg
+        run: pytest -q

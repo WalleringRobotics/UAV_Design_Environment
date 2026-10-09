@@ -1,4 +1,15 @@
-"""Propulsion sizing primitives for multirotors.
+"""Propulsion sizing primitives shared by multirotor and fixed-wing platforms.
+
+Two families live here:
+
+* **Rotor (hover)** — momentum theory with a figure of merit. Used by the
+  multirotor flow.
+* **Propeller (cruise)** — shaft power from drag x airspeed / propeller
+  efficiency. Used by the fixed-wing flow.
+
+Both end at the same seam: :func:`electrical_power_w` turns shaft power into
+pack-side electrical power, which :mod:`uavdesign.endurance` consumes without
+caring which airframe produced it.
 
 Functions are intentionally small and unit-explicit so they can be composed
 inside notebooks or wrapped as OpenMDAO components.
@@ -9,7 +20,60 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-G = 9.80665  # m/s^2
+from .atmosphere import G, isa_density  # noqa: F401  (re-exported for notebooks)
+
+
+# --------------------------------------------------------------------------- #
+# Shared: shaft -> electrical
+# --------------------------------------------------------------------------- #
+
+def electrical_power_w(
+    shaft_power_w: float,
+    motor_efficiency: float = 0.80,
+    esc_efficiency: float = 0.95,
+) -> float:
+    """Pack-side electrical power (W) needed to deliver a shaft power (W)."""
+    if not (0 < motor_efficiency <= 1 and 0 < esc_efficiency <= 1):
+        raise ValueError("efficiencies must be in (0, 1]")
+    return shaft_power_w / (motor_efficiency * esc_efficiency)
+
+
+# --------------------------------------------------------------------------- #
+# Fixed wing: propeller in cruise
+# --------------------------------------------------------------------------- #
+
+def cruise_shaft_power_w(
+    drag_n: float,
+    airspeed_m_s: float,
+    prop_efficiency: float = 0.60,
+) -> float:
+    """Shaft power (W) to hold steady level flight: P = D * V / eta_prop.
+
+    In level, unaccelerated flight thrust equals drag, so the propeller must
+    deliver D*V of useful power. 0.55-0.70 is typical for small pusher props
+    at cruise; it falls sharply away from the prop's design advance ratio.
+    """
+    if not (0 < prop_efficiency <= 1):
+        raise ValueError("prop_efficiency must be in (0, 1]")
+    return drag_n * airspeed_m_s / prop_efficiency
+
+
+def climb_shaft_power_w(
+    drag_n: float,
+    airspeed_m_s: float,
+    weight_n: float,
+    climb_rate_m_s: float,
+    prop_efficiency: float = 0.60,
+) -> float:
+    """Shaft power (W) for a steady climb: P = (D*V + W*ROC) / eta_prop."""
+    if not (0 < prop_efficiency <= 1):
+        raise ValueError("prop_efficiency must be in (0, 1]")
+    return (drag_n * airspeed_m_s + weight_n * climb_rate_m_s) / prop_efficiency
+
+
+# --------------------------------------------------------------------------- #
+# Multirotor: rotor in hover
+# --------------------------------------------------------------------------- #
 
 
 def thrust_per_motor(auw_kg: float, n_motors: int, tw_ratio: float) -> float:
@@ -53,20 +117,6 @@ def disc_area_m2(prop_diameter_in: float, n_motors: int) -> float:
     """Total rotor disc area (m^2) for `n_motors` props of a given diameter (in)."""
     radius_m = (prop_diameter_in * 0.0254) / 2.0
     return n_motors * math.pi * radius_m ** 2
-
-
-def isa_density(altitude_m: float, temperature_offset_c: float = 0.0) -> float:
-    """ISA atmospheric density (kg/m^3) at an altitude with optional ISA + offset.
-
-    Valid for the troposphere (<11 km), which covers all multirotor missions.
-    """
-    T0 = 288.15  # K, sea-level standard
-    L = 0.0065   # K/m, lapse rate
-    p0 = 101325.0  # Pa
-    R = 287.058  # J/(kg*K)
-    T = T0 - L * altitude_m + temperature_offset_c
-    p = p0 * (T / T0) ** (G / (R * L))
-    return p / (R * T)
 
 
 def prop_power_estimate(

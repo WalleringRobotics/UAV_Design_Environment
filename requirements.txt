@@ -1,6 +1,9 @@
 # Pip fallback for the conda environment.yml.
 # Use `pip install -r requirements.txt` if conda is not available.
 
+# The shared model package (uavdesign/), editable so notebook edits pick up model changes.
+-e .
+
 numpy
 scipy
 pandas
@@ -12,6 +15,12 @@ jupyterlab
 ipywidgets
 plotly
 openmdao>=3.28
+
+# Tests (models + notebook execution)
+pytest
+nbclient
+nbformat
+ipykernel
 
 # Constraint analysis library (W/S vs P/W diagrams)
 git+https://github.com/sobester/ADRpy
