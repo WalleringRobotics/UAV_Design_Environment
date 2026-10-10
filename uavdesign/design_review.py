@@ -192,7 +192,7 @@ def _math_images(markdown: str) -> str:
         width, height = Image.open(io.BytesIO(stream.getvalue())).size
         image = (f'<img alt="{html.escape(inner, quote=True)}" '
                  f'src="data:image/png;base64,{base64.b64encode(stream.getvalue()).decode()}" '
-                 f'style="width:{width/2:g}px;max-width:100%;height:auto;vertical-align:middle"/>')
+                 f'style="display:inline-block;margin:0;width:{width/2:g}px;max-width:100%;height:auto;vertical-align:middle"/>')
         return '\n\n<div style="margin:16px 0;overflow:auto">' + image + '</div>\n\n' if block else image
 
     # Markdown code examples are evidence, not presentation math.
