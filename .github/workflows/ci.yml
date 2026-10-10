@@ -13,13 +13,45 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install
+      - name: Install model and notebook dependencies
         run: pip install -e ".[test]"
       - name: Notebooks are in sync with scripts/nbdefs
         run: |
           python scripts/build_notebooks.py
           git diff --exit-code -- platforms
-      - name: Tests (models + every notebook runs)
+      - name: Fast model tests
         env:
           MPLBACKEND: Agg
-        run: pytest -q
+        run: pytest -q -m "not cad" --ignore=tests/test_notebooks.py
+
+  cad:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CAD and test dependencies
+        run: pip install -e ".[cad,test]"
+      - name: Build printable parts and verify printer fit
+        env:
+          MPLBACKEND: Agg
+        run: python scripts/build_parts.py --no-converge
+      - name: CAD regression tests
+        env:
+          MPLBACKEND: Agg
+        run: pytest -q -m cad
+      - name: Notebook execution tests (after manifest generation)
+        env:
+          MPLBACKEND: Agg
+        run: pytest -q tests/test_notebooks.py
+      - name: Upload fabrication deliverables
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: survey-wing-fabrication
+          path: outputs/parts/
+          if-no-files-found: warn
+          retention-days: 14
