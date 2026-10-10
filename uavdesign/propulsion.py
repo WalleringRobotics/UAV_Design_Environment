@@ -35,7 +35,90 @@ def electrical_power_w(
     """Pack-side electrical power (W) needed to deliver a shaft power (W)."""
     if not (0 < motor_efficiency <= 1 and 0 < esc_efficiency <= 1):
         raise ValueError("efficiencies must be in (0, 1]")
+    if not math.isfinite(shaft_power_w) or shaft_power_w < 0:
+        raise ValueError("shaft_power_w must be finite and non-negative")
     return shaft_power_w / (motor_efficiency * esc_efficiency)
+
+
+@dataclass(frozen=True)
+class StaticPropellerPoint:
+    """Constant-coefficient *estimate*, not measured propeller performance."""
+
+    rpm: float
+    thrust_n: float
+    shaft_power_w: float
+    electrical_power_w: float
+    current_a: float
+    tip_speed_m_s: float
+
+
+def static_propeller_point(
+    diameter_in: float, rpm: float, voltage_v: float, rho: float,
+    ct: float, cp: float, motor_efficiency: float = 0.82,
+    esc_efficiency: float = 0.95,
+) -> StaticPropellerPoint:
+    """Static thrust and power from explicit CT/CP coefficients.
+
+    With n in revolutions/second: T=CT*rho*n²*D⁴, P=CP*rho*n³*D⁵.
+    Conventions: https://m-selig.ae.illinois.edu/props/propDB.html .
+    CT/CP must be supplied by the caller and documented as measured or assumed.
+    Static coefficients cannot validate cruise advance-ratio performance.
+    """
+    for name, value in (("diameter_in", diameter_in), ("voltage_v", voltage_v),
+                        ("rho", rho), ("ct", ct), ("cp", cp)):
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be finite and positive")
+    if not math.isfinite(rpm) or rpm < 0:
+        raise ValueError("rpm must be finite and non-negative")
+    n, diameter_m = rpm / 60, diameter_in * 0.0254
+    thrust = ct * rho * n ** 2 * diameter_m ** 4
+    shaft = cp * rho * n ** 3 * diameter_m ** 5
+    electrical = electrical_power_w(shaft, motor_efficiency, esc_efficiency)
+    return StaticPropellerPoint(rpm, thrust, shaft, electrical, electrical / voltage_v,
+                               math.pi * diameter_m * n)
+
+
+def propeller_check(
+    *, auw_kg: float, diameter_in: float, motor_kv: float, voltage_v: float,
+    rho: float, ct: float, cp: float, loaded_rpm_fraction: float,
+    required_static_tw: float, esc_rating_a: float, cruise_electrical_power_w: float,
+    motor_efficiency: float = 0.82, esc_efficiency: float = 0.95,
+    current_headroom: float = 0.20,
+) -> dict:
+    """Evaluate thrust and ESC margins at one pack voltage.
+
+    RPM = KV * voltage * loaded_rpm_fraction. Neither motor saturation nor pack
+    sag is solved, so this screening estimate requires bench confirmation.
+    Cruise input power comes from the aircraft drag/power calculation, not CT.
+    """
+    for name, value in (("auw_kg", auw_kg), ("motor_kv", motor_kv),
+                        ("required_static_tw", required_static_tw), ("esc_rating_a", esc_rating_a)):
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be finite and positive")
+    if not 0 < loaded_rpm_fraction <= 1 or not math.isfinite(current_headroom) or current_headroom < 0:
+        raise ValueError("Invalid loaded RPM fraction or current headroom")
+    if not math.isfinite(cruise_electrical_power_w) or cruise_electrical_power_w < 0:
+        raise ValueError("cruise_electrical_power_w must be finite and non-negative")
+    point = static_propeller_point(diameter_in, motor_kv * voltage_v * loaded_rpm_fraction,
+                                  voltage_v, rho, ct, cp, motor_efficiency, esc_efficiency)
+    required = auw_kg * G * required_static_tw
+    return {
+        "voltage_v": voltage_v,
+        "rpm": point.rpm,
+        "static_thrust_n": point.thrust_n,
+        "required_static_thrust_n": required,
+        "static_thrust_margin_n": point.thrust_n - required,
+        "thrust_pass": point.thrust_n >= required,
+        "shaft_power_w": point.shaft_power_w,
+        "full_throttle_electrical_power_w": point.electrical_power_w,
+        "full_throttle_current_a": point.current_a,
+        "esc_required_with_headroom_a": point.current_a * (1 + current_headroom),
+        "esc_rating_a": esc_rating_a,
+        "esc_pass": point.current_a * (1 + current_headroom) <= esc_rating_a,
+        "cruise_pack_current_a": cruise_electrical_power_w / voltage_v,
+        "tip_speed_m_s": point.tip_speed_m_s,
+        "evidence": "estimated; bench validation required",
+    }
 
 
 # --------------------------------------------------------------------------- #

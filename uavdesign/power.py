@@ -3,6 +3,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
+
+
+def cooling_airflow(
+    heat_w: float, temperature_rise_k: float, rho: float,
+    inlet_speed_m_s: float, capture_fraction: float = 0.5,
+    specific_heat_j_kg_k: float = 1005.0,
+) -> dict:
+    """Minimum cooling flow from heat = mass flow * cp * temperature rise.
+
+    ``capture_fraction`` derates freestream velocity at the inlet. The area is
+    an energy-balance estimate, not a fan/duct pressure-loss or junction-
+    temperature model. Ground operation needs a fan and thermal validation.
+    """
+    for name, value in (("heat_w", heat_w), ("temperature_rise_k", temperature_rise_k),
+                        ("rho", rho), ("inlet_speed_m_s", inlet_speed_m_s),
+                        ("specific_heat_j_kg_k", specific_heat_j_kg_k)):
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be finite and positive")
+    if not 0 < capture_fraction <= 1:
+        raise ValueError("capture_fraction must be in (0, 1]")
+    mass_flow = heat_w / (specific_heat_j_kg_k * temperature_rise_k)
+    flow = mass_flow / rho
+    area = flow / (inlet_speed_m_s * capture_fraction)
+    return {"heat_w": heat_w, "temperature_rise_k": temperature_rise_k,
+            "mass_flow_kg_s": mass_flow, "volume_flow_m3_s": flow,
+            "volume_flow_l_s": flow * 1000,
+            "inlet_area_mm2": area * 1e6,
+            "equivalent_inlet_diameter_mm": math.sqrt(4 * area / math.pi) * 1000,
+            "requires_ground_fan": True,
+            "status": "energy balance only; pressure drop and heatsink performance unverified"}
 
 
 @dataclass

@@ -25,6 +25,7 @@ from .aero.airfoil import DragBuildUp, aircraft_polar, max_thickness
 from .aero.polar import DragPolar, FixedWingAero
 from .aero.wing import Wing
 from .atmosphere import G
+from .endurance import Battery, endurance_from_power_min
 from .structures import PrintMaterial, PrintSettings, Tube, wing_panel_mass_g
 
 
@@ -84,6 +85,8 @@ class SizingInputs:
     # CAD calibration: measured / analytic (written by scripts/build_parts.py)
     wing_mass_factor: float = 1.0
     pod_mass_factor: float = 1.0
+    battery_peukert_exponent: float = 1.0
+    battery_reference_c_rate: float = 1.0
 
 
 @dataclass
@@ -106,6 +109,8 @@ class SizingResult:
     battery_energy_wh: float
     endurance_min: float = 0.0
     history: list = field(default_factory=list)
+    rho: float = 1.225
+    survey_speed_compatible: bool = True
 
     @property
     def max_power_elec_w(self) -> float:
@@ -123,7 +128,9 @@ class SizingResult:
             "wing_loading_g_dm2": self.wing_loading_n_m2 / G * 10.0,
             "stall_speed_m_s": self.stall_speed_m_s,
             "cruise_speed_m_s": self.cruise_speed_m_s,
-            "cl_cruise": 2 * self.auw_kg * G / (1.167 * self.cruise_speed_m_s ** 2 * self.wing_area_m2),
+            "cl_cruise": 2 * self.auw_kg * G / (self.rho * self.cruise_speed_m_s ** 2 * self.wing_area_m2),
+            "air_density_kg_m3": self.rho,
+            "survey_speed_compatible": self.survey_speed_compatible,
             "cruise_power_elec_w": self.cruise_power_elec_w,
             "max_power_elec_w": self.max_power_elec_w,
             "battery_energy_wh": self.battery_energy_wh,
@@ -195,12 +202,22 @@ def _elec(inp: SizingInputs, shaft_w: float) -> float:
 
 
 def cruise_speed(ac: FixedWingAero, survey_speed_m_s: float, stall_margin: float = 1.3) -> float:
-    """Fly at best-L/D, but never below margin x stall and never above the survey limit."""
+    """Prefer best-L/D within the survey limit; stall margin takes precedence.
+
+    A returned speed above the survey limit is an infeasible imaging mission,
+    reported through ``survey_speed_compatible`` rather than hidden as a pass.
+    """
     v = max(ac.v_max_ld, stall_margin * ac.stall_speed())
     return min(v, max(survey_speed_m_s, stall_margin * ac.stall_speed()))
 
 
 def size(inp: SizingInputs, auw_guess_kg: float = 3.0, tol_kg: float = 1e-4, max_iter: int = 60) -> SizingResult:
+    if max_iter < 1 or tol_kg <= 0 or auw_guess_kg <= 0:
+        raise ValueError("max_iter, tol_kg and auw_guess_kg must be positive")
+    if (inp.fixed_battery_mass_g is None) != (inp.fixed_battery_energy_wh is None):
+        raise ValueError("fixed battery mass and energy must be specified together")
+    Battery(1, inp.pack_voltage_v, inp.battery_peukert_exponent,
+            inp.battery_reference_c_rate, inp.battery_usable_fraction)
     auw = auw_guess_kg
     history = []
     polar = None
@@ -232,9 +249,18 @@ def size(inp: SizingInputs, auw_guess_kg: float = 3.0, tol_kg: float = 1e-4, max
             e_wh = inp.fixed_battery_energy_wh
             m_batt = inp.fixed_battery_mass_g
         else:
-            e_wh = p_cr_total * inp.endurance_min / 60.0 / inp.battery_usable_fraction
+            # Invert t = usable * (C/I)^n * reference_C_rate^(n-1).
+            n = inp.battery_peukert_exponent
+            capacity_ah = (p_cr_total / inp.pack_voltage_v) * (
+                inp.endurance_min / 60.0
+                / (inp.battery_usable_fraction * inp.battery_reference_c_rate ** (n - 1))
+            ) ** (1 / n)
+            e_wh = capacity_ah * inp.pack_voltage_v
             m_batt = e_wh / inp.pack_wh_per_kg * 1000.0
-        endurance = e_wh * inp.battery_usable_fraction / p_cr_total * 60.0
+        battery = Battery(e_wh / inp.pack_voltage_v, inp.pack_voltage_v,
+                          inp.battery_peukert_exponent, inp.battery_reference_c_rate,
+                          inp.battery_usable_fraction)
+        endurance = endurance_from_power_min(battery, p_cr_total)
         # 4) masses
         m_struct = inp.structure_mass_override_g or _structure_masses_g(inp, wing)
         i_max = p_max / inp.pack_voltage_v
@@ -276,11 +302,13 @@ def size(inp: SizingInputs, auw_guess_kg: float = 3.0, tol_kg: float = 1e-4, max
         stall_speed_m_s=FixedWingAero(auw, wing.area_m2, polar, inp.rho).stall_speed(),
         cruise_speed_m_s=v_cr,
         cruise_power_elec_w=p_cr_total,
-        climb_power_elec_w=p_climb,
-        launch_power_elec_w=p_launch,
+        climb_power_elec_w=p_climb + inp.avionics_power_w + inp.payload_power_w,
+        launch_power_elec_w=p_launch + inp.avionics_power_w + inp.payload_power_w,
         battery_energy_wh=e_wh,
         endurance_min=endurance,
         history=history,
+        rho=inp.rho,
+        survey_speed_compatible=v_cr <= inp.survey_speed_m_s + 1e-9,
     )
 
 
@@ -294,6 +322,7 @@ class Evaluation:
     cruise_speed_m_s: float
     cruise_power_w: float
     endurance_min: float
+    survey_speed_compatible: bool = True
 
 
 def evaluate(
@@ -322,7 +351,11 @@ def evaluate(
         launch_speed_needed_m_s=ac.stall_speed() * inp.launch_margin,
         cruise_speed_m_s=v,
         cruise_power_w=p_tot,
-        endurance_min=e_wh * inp.battery_usable_fraction / p_tot * 60,
+        endurance_min=endurance_from_power_min(Battery(
+            e_wh / inp.pack_voltage_v, inp.pack_voltage_v,
+            inp.battery_peukert_exponent, inp.battery_reference_c_rate,
+            inp.battery_usable_fraction), p_tot),
+        survey_speed_compatible=v <= inp.survey_speed_m_s + 1e-9,
     )
 
 
@@ -356,13 +389,19 @@ def inputs_from_yaml(design: dict, payload_mass_kg: float, payload_power_w: floa
     tube, length_fraction, extra = spar_set(st["spars"], design["planform"]["pod_width_mm"])
     cell_wh = bt["cell_capacity_ah"] * bt["cell_nominal_v"]
     pack_wh_per_kg = cell_wh / bt["cell_mass_g"] * 1000 / (1 + bt["pack_overhead_fraction"])
+    launch = req.get("launch", {})
+    mode = launch.get("selected", "hand")
+    if mode not in ("hand", "bungee"):
+        raise ValueError("requirements.launch.selected must be 'hand' or 'bungee'")
+    release_speed = (req["hand_launch_speed_m_s"] if mode == "hand"
+                     else launch["bungee_release_speed_m_s"])
     return SizingInputs(
         payload_mass_kg=payload_mass_kg,
         payload_power_w=payload_power_w,
         avionics_mass_kg=avionics_mass_kg,
         avionics_power_w=avionics_power_w,
         rho=rho,
-        hand_launch_speed_m_s=req["hand_launch_speed_m_s"],
+        hand_launch_speed_m_s=release_speed,
         launch_margin=req["launch_margin"],
         endurance_min=req["endurance_min"],
         survey_speed_m_s=survey_speed_m_s,
@@ -394,6 +433,8 @@ def inputs_from_yaml(design: dict, payload_mass_kg: float, payload_power_w: floa
         pack_voltage_v=bt["cells_series"] * bt["cell_nominal_v"],
         pack_wh_per_kg=pack_wh_per_kg,
         battery_usable_fraction=bt["usable_fraction"],
+        battery_peukert_exponent=bt.get("peukert_exponent", 1.0),
+        battery_reference_c_rate=bt.get("reference_c_rate", 1.0),
         contingency_fraction=design["contingency_fraction"],
         clmax_3d_factor=pl.get("clmax_3d_factor", 0.90),
         trim_clmax_factor=pl.get("trim_clmax_factor", 0.85),

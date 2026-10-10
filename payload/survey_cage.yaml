@@ -15,12 +15,15 @@ cage:
   # Members on the rigid cage (isolated as one unit)
   members:
     camera:
-      part: "Basler ace 2 GigE PRO, IMX542 colour (a2A5328-4gcPRO)"
-      mass_g: 90
-      power_w: 3.5
-      envelope_mm: [29, 29, 42]        # confirm: GigE housing length
+      part: "Basler ace 2 R GigE PRO, IMX542 colour (a2A5320-7gcPRO), preferred candidate"
+      mass_g: 105
+      power_w: 3.4                   # typical; peak/inrush require bench measurement
+      envelope_mm: [29, 29, 55.5]    # optical axis along cage +z; excludes plugs
       position_mm: [0, 0, 75.5]        # bottom face sits on the lens back
-      confirm: "Basler lists a2A5328-4gcPRO as 'not in series production yet' (Oct 2026); 4 fps max"
+      source: https://www.baslerweb.com/en/shop/a2a5320-7gcpro/
+      checked_on: "2026-10-10"
+      verified: true
+      confirm: "Confirm availability, trigger/ExposureActive electrical levels and connector clearance. Basler preferred, alternatives allowed. Previous a2A5328-4gcPRO was an IMX540 SKU mismatch."
     lens:
       part: "Kowa LM25FC24M 25 mm f/1.8 1.1in C-mount"
       mass_g: 220                      # datasheet: <= 220 g

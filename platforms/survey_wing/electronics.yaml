@@ -110,6 +110,7 @@ components:
     qty: 2
     mass_g: 10
     power_w: 0.5
+    peak_power_w: 6.0       # estimate: 1 A each at 6 V; measure loaded/stall transient
     rail: servo_6v
     interface: PWM
     dims_mm: [22.5, 10.0, 23.8]
@@ -197,7 +198,7 @@ rails:
   can:         {voltage_nominal_v: 5.0, from: flight_controller, capacity_a: 1.5}
   fc_12v:      {voltage_nominal_v: 12.0, from: flight_controller, capacity_a: 2.0}
   compute_12v: {voltage_nominal_v: 12.0, from: reg_12v_compute, capacity_a: 4.5}
-  compute_usb: {voltage_nominal_v: 5.0, from: compute, capacity_a: 1.0}
+  compute_usb: {voltage_nominal_v: 5.0, from: compute, capacity_a: 1.0, efficiency: 0.90}
   servo_6v:    {voltage_nominal_v: 6.0, from: reg_servo, capacity_a: 2.5}
   esc:         {voltage_nominal_v: 18.0, from: pack}
 

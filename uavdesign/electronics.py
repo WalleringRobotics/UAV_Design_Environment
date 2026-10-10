@@ -9,6 +9,7 @@ propagated back to the pack) for the wiring and BEC checks.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 
 import yaml
@@ -25,9 +26,22 @@ class Pack:
     cell_max_v: float
     overhead_fraction: float
 
+    def __post_init__(self):
+        for name in ("series", "parallel"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        for name in ("cell_mass_g", "cell_capacity_ah", "cell_nominal_v", "cell_min_v", "cell_max_v"):
+            if not math.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if not self.cell_min_v < self.cell_nominal_v < self.cell_max_v:
+            raise ValueError("cell voltages must satisfy min < nominal < max")
+        if not math.isfinite(self.overhead_fraction) or self.overhead_fraction < 0:
+            raise ValueError("overhead_fraction must be finite and non-negative")
+
     @classmethod
     def from_dict(cls, d: dict) -> "Pack":
-        return cls(int(d["series"]), int(d["parallel"]), float(d["cell_mass_g"]),
+        return cls(d["series"], d["parallel"], float(d["cell_mass_g"]),
                    float(d["cell_capacity_ah"]), float(d["cell_nominal_v"]),
                    float(d["cell_min_v"]), float(d["cell_max_v"]), float(d["overhead_fraction"]))
 
@@ -109,25 +123,35 @@ class Electronics:
     # Efficiencies of the converters that are not separate BOM items
     SOURCE_EFFICIENCY = {"flight_controller": 0.85}
 
-    def power_tree(self, payload_loads_w: dict) -> dict:
+    def power_tree(self, payload_loads_w: dict, *, peak: bool = False) -> dict:
         """Per-rail power, bottom-up, with conversion losses propagated to the pack.
 
         Each rail's ``from`` is the battery, a regulator in the BOM (uses its
-        ``efficiency``), the FC / power-monitor BEC (fixed efficiencies), or
-        ``compute`` (USB devices — already inside the computer's rated draw,
-        so not propagated). Returns {rail: {direct_w, total_w, current_a,
+        ``efficiency``), the FC regulator, or ``compute``. USB peripheral
+        loads are additional to the compute board budget and propagate via
+        its supply rail with their own converter efficiency. Returns
+        {rail: {direct_w, total_w, current_a,
         capacity_a, utilisation}} and 'pack_total_w' (avionics + payload,
         excluding propulsion).
         """
         direct = {r: 0.0 for r in self.rails}
         for c in self.components.values():
+            if c.get("group") == "propulsion":
+                continue  # propulsion is calculated from shaft power separately
             r = c.get("rail")
             if r in direct:
-                direct[r] += c["qty"] * c.get("power_w", 0.0)
+                power = c.get("peak_power_w", c.get("power_w", 0.0)) if peak else c.get("power_w", 0.0)
+                if not math.isfinite(power) or power < 0:
+                    raise ValueError("Component power must be finite and non-negative")
+                direct[r] += c["qty"] * power
+            elif r not in (None, "none"):
+                raise KeyError(f"Unknown rail {r!r}")
         for name, w in payload_loads_w.items():
             r = self.payload_rails.get(name)
             if r is None:
                 raise KeyError(f"payload item {name!r} has no rail in payload_rails")
+            if not math.isfinite(w) or w < 0:
+                raise ValueError("Payload power must be finite and non-negative")
             direct[r] += w
 
         regulators = {c["feeds"]: c for c in self.components.values() if c.get("feeds")}
@@ -137,16 +161,26 @@ class Electronics:
             if src == "battery":
                 continue
             if r in regulators:
-                parent[r] = ("pack", regulators[r].get("efficiency", 0.9))
+                parent[r] = (regulators[r].get("rail", "pack"), regulators[r].get("efficiency", 0.9))
             elif src == "flight_controller":
-                # the FC's onboard regulators run straight off the pack
-                parent[r] = ("pack", self.SOURCE_EFFICIENCY["flight_controller"])
-            # 'compute' and 'pack'-fed rails (ESC) do not propagate here
+                parent[r] = (self.components["flight_controller"]["rail"],
+                             spec.get("efficiency", self.SOURCE_EFFICIENCY["flight_controller"]))
+            elif src == "compute":
+                parent[r] = (self.payload_rails["compute"], spec.get("efficiency", 0.9))
+            elif src in self.rails:
+                parent[r] = (src, spec.get("efficiency", 1.0))
+            else:
+                raise ValueError(f"Unresolved source {src!r} for rail {r!r}")
+            up, eff = parent[r]
+            if up not in direct or not 0 < eff <= 1:
+                raise ValueError(f"Invalid input rail or efficiency for {r!r}")
 
         total = dict(direct)
 
-        def depth(r):
-            return 0 if r not in parent else 1 + depth(parent[r][0])
+        def depth(r, visited=frozenset()):
+            if r in visited:
+                raise ValueError(f"Cycle in power tree at {r!r}")
+            return 0 if r not in parent else 1 + depth(parent[r][0], visited | {r})
 
         for r in sorted(parent, key=depth, reverse=True):
             up, eff = parent[r]
@@ -156,10 +190,12 @@ class Electronics:
         for r, spec in self.rails.items():
             v = spec["voltage_nominal_v"]
             cap = spec.get("capacity_a")
-            a = total[r] / v if v else 0.0
+            if not math.isfinite(v) or v <= 0 or (cap is not None and cap <= 0):
+                raise ValueError(f"Invalid voltage or current capacity for rail {r!r}")
+            a = total[r] / v
             out[r] = {"direct_w": direct[r], "total_w": total[r], "current_a": a,
                       "capacity_a": cap, "utilisation": (a / cap) if cap else None}
-        out["pack_total_w"] = total["pack"] - direct["esc"] if "esc" in direct else total["pack"]
+        out["pack_total_w"] = total["pack"]
         return out
 
     # ---- reporting ----------------------------------------------------------
@@ -171,13 +207,20 @@ class Electronics:
                 "item": key,
                 "part": c["part"],
                 "qty": c["qty"],
+                "mass_each_g": c["mass_g"],
                 "mass_g": c["qty"] * c["mass_g"],
+                "power_each_w": c.get("power_w", 0.0),
+                "peak_power_each_w": c.get("peak_power_w"),
+                "rail": c.get("rail", "none"),
+                "interface": c.get("interface", ""),
                 "group": c.get("group", ""),
                 "provenance": c.get("provenance", ""),
+                "source": c.get("source", ""),
                 "verified": bool(c.get("verified", False)),
                 "confirm": c.get("confirm", ""),
             })
         return rows
 
     def open_items(self) -> list[str]:
-        return [f"{k}: {c['confirm']}" for k, c in self.components.items() if c.get("confirm")]
+        return [f"{k}: {c.get('confirm') or 'Specification and source need confirmation'}"
+                for k, c in self.components.items() if c.get("confirm") or not c.get("verified", False)]

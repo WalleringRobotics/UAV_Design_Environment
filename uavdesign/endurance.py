@@ -16,6 +16,7 @@ discharge-curve simulator.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import numpy as np
 
@@ -45,6 +46,15 @@ class Battery:
     reference_c_rate: float = 1.0
     usable_fraction: float = 0.80  # 20 % reserve
 
+    def __post_init__(self):
+        for name in ("capacity_ah", "nominal_voltage_v", "reference_c_rate"):
+            if not math.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if not math.isfinite(self.peukert_exponent) or self.peukert_exponent < 1:
+            raise ValueError("peukert_exponent must be finite and >= 1")
+        if not 0 < self.usable_fraction <= 1:
+            raise ValueError("usable_fraction must be in (0, 1]")
+
     @property
     def usable_capacity_ah(self) -> float:
         return self.capacity_ah * self.usable_fraction
@@ -73,7 +83,11 @@ def peukert_efficiency(
     reference rate, < 1 above it (typical multirotor hover), > 1 below it
     (typical fixed-wing cruise — small packs at well under 1C).
     """
-    if discharge_current_a <= 0:
+    Battery(capacity_ah, peukert_exponent=peukert_exponent,
+            reference_c_rate=reference_c_rate)
+    if not math.isfinite(discharge_current_a) or discharge_current_a < 0:
+        raise ValueError("discharge_current_a must be finite and non-negative")
+    if discharge_current_a == 0:
         return 1.0
     i_ref = capacity_ah * reference_c_rate
     return (i_ref / discharge_current_a) ** (peukert_exponent - 1.0)
@@ -81,8 +95,10 @@ def peukert_efficiency(
 
 def pack_current_a(electrical_power_w: float, pack_voltage_v: float) -> float:
     """Convert electrical power at the pack to pack current."""
-    if pack_voltage_v <= 0:
+    if not math.isfinite(pack_voltage_v) or pack_voltage_v <= 0:
         raise ValueError("pack_voltage_v must be positive")
+    if not math.isfinite(electrical_power_w) or electrical_power_w < 0:
+        raise ValueError("electrical_power_w must be finite and non-negative")
     return electrical_power_w / pack_voltage_v
 
 
@@ -96,7 +112,9 @@ def endurance_min(
     Uses usable capacity (reserve already applied) and an optional Peukert
     correction at the discharge current. Works for any platform.
     """
-    if current_a <= 0:
+    if not math.isfinite(current_a) or current_a < 0:
+        raise ValueError("current_a must be finite and non-negative")
+    if current_a == 0:
         return float("inf")
     eta = (
         peukert_efficiency(
@@ -174,6 +192,12 @@ class MissionSegment:
     name: str
     duration_s: float
     electrical_power_w: float
+
+    def __post_init__(self):
+        if not math.isfinite(self.duration_s) or self.duration_s < 0:
+            raise ValueError("duration_s must be finite and non-negative")
+        if not math.isfinite(self.electrical_power_w) or self.electrical_power_w < 0:
+            raise ValueError("electrical_power_w must be finite and non-negative")
 
 
 def peukert_equivalent_ah(battery: Battery, segments: list[MissionSegment]) -> float:
