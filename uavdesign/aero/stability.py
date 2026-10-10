@@ -18,6 +18,8 @@ VLM wing result.
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -161,6 +163,31 @@ def analyse(
     return StabilityResult(cla, cl0, x_np_w, x_np_w - shift, cm0_np, c)
 
 
+def _trim_bounds(bounds) -> tuple[float, float]:
+    """Bisection requires a finite interval with distinct ordered endpoints."""
+    try:
+        lo, hi = map(float, bounds)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Trim bounds must contain two finite increasing angles") from exc
+    if not math.isfinite(lo) or not math.isfinite(hi) or lo >= hi:
+        raise ValueError("Trim bounds must contain two finite increasing angles")
+    return lo, hi
+
+
+def _trim_residual(value: float, description: str) -> float:
+    if not math.isfinite(value):
+        raise ValueError(f"{description} produced a nonfinite trim residual")
+    return value
+
+
+def _require_trim_bracket(lo, hi, flo, fhi, description):
+    if flo != 0 and fhi != 0 and (flo > 0) == (fhi > 0):
+        raise ValueError(
+            f"{description} trim root is not bracketed by bounds [{lo:g}, {hi:g}] deg "
+            f"(moment residuals {flo:.6g}, {fhi:.6g}); revise the design or bounds"
+        )
+
+
 def solve_washout(
     wing: Wing,
     root_airfoil: str,
@@ -172,31 +199,41 @@ def solve_washout(
     airspeed_m_s: float = 14.0,
     blend_start_mm: float = 0.0,
 ) -> tuple[float, StabilityResult]:
-    """Washout (deg) that trims the clean wing at `cl_trim` with `static_margin`."""
+    """Washout (deg) that trims the clean wing at `cl_trim` with `static_margin`.
+
+    Raises ``ValueError`` when the bounds do not bracket a trim root; an
+    untrimmed endpoint is never returned as a successful design solution.
+    """
     target = static_margin * cl_trim
 
     def mk(w):
         return WingAeroModel(root_airfoil, tip_airfoil, w, blend_start_mm=blend_start_mm)
 
     def f(w):
-        return analyse(wing, mk(w), airspeed_m_s, pod=pod).cm0 - target
+        return _trim_residual(analyse(wing, mk(w), airspeed_m_s, pod=pod).cm0 - target,
+                              "Washout")
 
-    lo, hi = bounds
+    lo, hi = _trim_bounds(bounds)
     flo, fhi = f(lo), f(hi)
-    if flo * fhi > 0:
-        w = hi if abs(fhi) < abs(flo) else lo
+    _require_trim_bracket(lo, hi, flo, fhi, "Washout")
+    if flo == 0 or fhi == 0:
+        w = lo if flo == 0 else hi
         return w, analyse(wing, mk(w), airspeed_m_s, pod=pod)
     for _ in range(30):
         mid = 0.5 * (lo + hi)
         fm = f(mid)
-        if flo * fm <= 0:
+        if fm == 0 or (flo > 0) != (fm > 0):
             hi, fhi = mid, fm
         else:
             lo, flo = mid, fm
         if hi - lo < 0.02:
             break
+    else:
+        raise ValueError("Washout trim did not converge within 30 bisection iterations")
     w = 0.5 * (lo + hi)
-    return w, analyse(wing, mk(w), airspeed_m_s, pod=pod)
+    result = analyse(wing, mk(w), airspeed_m_s, pod=pod)
+    _trim_residual(result.cm0 - target, "Washout")
+    return w, result
 
 
 def solve_elevon_trim(
@@ -208,26 +245,38 @@ def solve_elevon_trim(
     bounds=(-15.0, 15.0),
     airspeed_m_s: float = 14.0,
 ) -> tuple[float, StabilityResult]:
-    """Elevon deflection (deg, negative = trailing edge up) for Cm_cg = 0 at `cl_trim`."""
+    """Elevon deflection (deg, negative = trailing edge up) for Cm_cg = 0 at `cl_trim`.
+
+    Raises ``ValueError`` if the allowed deflections do not bracket a trim root.
+    """
     if model.elevon is None:
         raise ValueError("model has no elevon")
 
     def f(d):
-        return analyse(wing, model, airspeed_m_s, d, pod).cm_at(cl_trim, x_cg_mm)
+        return _trim_residual(analyse(wing, model, airspeed_m_s, d, pod).cm_at(cl_trim, x_cg_mm),
+                              "Elevon")
 
-    lo, hi = bounds
-    flo = f(lo)
+    lo, hi = _trim_bounds(bounds)
+    flo, fhi = f(lo), f(hi)
+    _require_trim_bracket(lo, hi, flo, fhi, "Elevon")
+    if flo == 0 or fhi == 0:
+        d = lo if flo == 0 else hi
+        return d, analyse(wing, model, airspeed_m_s, d, pod)
     for _ in range(30):
         mid = 0.5 * (lo + hi)
         fm = f(mid)
-        if flo * fm <= 0:
+        if fm == 0 or (flo > 0) != (fm > 0):
             hi = mid
         else:
             lo, flo = mid, fm
         if hi - lo < 0.05:
             break
+    else:
+        raise ValueError("Elevon trim did not converge within 30 bisection iterations")
     d = 0.5 * (lo + hi)
-    return d, analyse(wing, model, airspeed_m_s, d, pod)
+    result = analyse(wing, model, airspeed_m_s, d, pod)
+    _trim_residual(result.cm_at(cl_trim, x_cg_mm), "Elevon")
+    return d, result
 
 
 def panknin_washout_deg(
