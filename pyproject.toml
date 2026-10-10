@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uavdesign"
+version = "0.2.0"
+description = "Wallering Robotics UAV design environment — shared sizing models for multirotor and fixed-wing platforms"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "pyyaml",
+    "jsonschema>=4.23",
+    "aerosandbox>=4.2",   # airfoil database, vortex lattice
+    "neuralfoil",         # section polars
+]
+
+[project.optional-dependencies]
+cad = ["cadquery>=2.4"]
+notebooks = ["jupyterlab", "ipywidgets", "plotly", "seaborn"]
+test = ["pytest", "nbclient", "nbformat", "ipykernel"]
+
+[tool.setuptools.packages.find]
+include = ["uavdesign*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "notebooks: executes every platform notebook top-to-bottom (slower)",
+    "cad: builds every printed part with CadQuery (minutes)",
+]

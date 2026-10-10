@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.11
+  - python=3.12
   - jupyter
   - jupyterlab
   - numpy
@@ -13,7 +13,14 @@ dependencies:
   - seaborn
   - pyyaml
   - pip
+  - pytest
+  - nbclient
+  - ipykernel
+  - cadquery
   - pip:
+    - -e .
+    - aerosandbox>=4.2
+    - neuralfoil
     - openmdao>=3.28
     - plotly
     - ipywidgets

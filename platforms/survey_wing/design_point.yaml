@@ -1,0 +1,149 @@
+# Survey wing — design point.
+#
+# A hand-launched, belly-landed tailless wing that carries the survey cage
+# (payload/survey_cage.yaml) and is printed on a Prusa CORE One+
+# (fabrication.yaml). Electronics: electronics.yaml. Site: mission/mission_params.yaml.
+#
+# One airframe, two payload configurations: sized for `size_for`, then every
+# config in `configs` is flown on that same airframe and pack.
+
+payload:
+  file: payload/survey_cage.yaml
+  size_for: orin
+  configs: [orin, cm5]
+
+survey:
+  camera:                      # Candidate: Basler a2A5320-7gcPRO, Sony IMX542
+    source: https://www.baslerweb.com/en/shop/a2a5320-7gcpro/
+    pixels_across: 5320
+    pixels_along: 3032
+    pixel_um: 2.74
+    focal_mm: 25.0
+    max_fps: 7.0               # manufacturer limit; actual acquisition rate is mission-dependent
+  acquisition_rate_cap_hz: 4.0  # planned cap; preserve storage/trigger budget assumptions
+  agl_m: 100
+  forward_overlap: 0.80
+  side_overlap: 0.70
+  exposure_s: 0.0004           # 1/2500 s
+  blur_limit_px: 0.6
+  turn_efficiency: 0.80        # fraction of survey time on line
+  climb_height_m: 120
+  hot_day_isa_offset_c: 15     # size on a 30 C day at 500 m
+
+requirements:
+  hand_launch_speed_m_s: 11.5  # release airspeed with motor at full power
+  launch:
+    selected: hand             # retained baseline; bungee remains Ryan's decision
+    bungee_release_speed_m_s: 15.0  # trade assumption; validate rig and hook loads
+  launch_margin: 1.10          # release at >= 1.1 x stall
+  launch_static_thrust_to_weight: 0.60
+  climb_rate_m_s: 2.5
+  endurance_min: 50            # sizing target for `size_for`; final value follows the chosen pack
+  load_factor_limit: 4.0       # hand launch, belly landing, gusts
+  safety_factor: 1.5
+
+planform:
+  airfoil_root: s5010
+  airfoil_tip: e186
+  airfoil: s5010               # used for the sizing-loop polar
+  aspect_ratio: 8.0
+  taper: 0.50
+  le_sweep_deg: 20.0
+  oswald_e: 0.85
+  static_margin: 0.06          # fraction of MAC; flying-wing intermediate setting
+  pod_width_mm: 130
+  pod_height_mm: 165
+  pod_length_mm: 560
+  fin_area_fraction: 0.06      # both tip fins / wing area
+  fin_height_mm: 180
+  elevon_chord_fraction: 0.22
+  elevon_span_fraction: [0.40, 0.94]   # of half span
+  clmax_3d_factor: 0.90
+  trim_clmax_factor: 0.85
+  roughness_factor: 0.15
+  misc_cd: 0.002
+
+structure:
+  wing_material: {name: "colorFabb LW-ASA (partially foamed)", density_g_cm3: 0.55, max_service_c: 96}
+  wing_perimeters: 1
+  extrusion_width_mm: 0.50
+  wing_infill: 0.07            # gyroid, carries the skin between spars
+  pod_shell_g_per_dm2: 14.0    # ASA, 2 perimeters + frames
+  # Removable wings. A straight (unswept) joiner tube runs through the pod and
+  # into a straight sleeve bonded in each panel; it sits where it stays inside
+  # the swept airfoil out to its tip. Outboard, a lighter swept spar overlaps
+  # the sleeve and carries the outer bending. A rear pin stops panel rotation.
+  # Tube material: pultruded/roll-wrapped carbon.
+  spars:
+    joiner:     {od_mm: 14.0, id_mm: 12.0, half_length_mm: 365}
+    sleeve:     {od_mm: 16.0, id_mm: 14.0}                      # pod side -> joiner tip + 15 mm
+    outer_spar: {od_mm: 10.0, id_mm: 8.0, y_start_fraction: 0.25, y_end_fraction: 0.80, x_over_c: 0.28}
+    rear_pin:   {od_mm: 6.0, id_mm: 4.0, half_length_mm: 135}
+    density_g_cm3: 1.55
+    allowable_mpa: 400.0
+    modulus_gpa: 110.0
+  hardware_mass_g: 80
+
+propulsion:
+  prop_diameter_in: 13
+  prop_pitch_in: 8
+  prop_efficiency: 0.65
+  motor_efficiency: 0.82
+  esc_efficiency: 0.95
+  motor_kv: 500
+  # parametric models, used only in the free sizing pass
+  motor_w_per_g: 2.5
+  esc_g_per_a: 0.6
+  prop_spinner_mass_g: 45
+  screening:
+    ct: 0.11                  # assumed static coefficients, NOT measured 13x8 data
+    cp: 0.055
+    loaded_rpm_fraction: 0.80 # RPM / (KV * terminal pack voltage), approximate
+    # ESC current rating comes from electronics.yaml, avoiding a second stale value.
+    current_headroom: 0.20
+    coefficient_source: https://m-selig.ae.illinois.edu/props/propDB.html
+    coefficient_status: "UIUC coefficient convention; numerical CT/CP are engineering assumptions"
+    candidates:
+      - name: "Hacker A40-10L V4 500 KV (baseline candidate)"
+        motor_kv: 500
+        mass_g: 246
+        max_cells_series: 5
+        max_15s_power_w: 1100
+        source: https://www.hacker-motor-shop.com/A40-10L-V4-kv500.htm?ProdNr=33726614&a=article&p=310
+      - name: "Hacker A40-14S V4 530 KV (lighter trade)"
+        motor_kv: 530
+        mass_g: 198
+        max_cells_series: 5
+        max_15s_power_w: 900
+        source: https://www.hacker-motor-shop.com/A40-14S-V4-kv530.htm?ProdNr=33726609&a=article&p=310
+      - name: "Hacker A30-12 XL V4 700 KV (4S only; incompatible with baseline 5S)"
+        motor_kv: 700
+        mass_g: 177
+        max_cells_series: 4
+        max_15s_power_w: 650
+        source: https://www.hacker-motor-shop.com/Brushless-Motors/Hacker-Outrunner/Hacker-A30/A30/A30-12-XL-V4-kv700.htm?ProdNr=15716108&a=article&p=6514&shop=hacker_e
+
+thermal:
+  heat_w: 20.0
+  temperature_rise_k: 15.0
+  capture_fraction: 0.50       # allowance for inlet losses; not a pressure-drop solution
+  specific_heat_j_kg_k: 1005.0
+
+balance_trades:
+  cage_shift_mm: 5.0
+  cage_half_length_mm: 46.0
+  joiner_lug_forward_offset_mm: 12.0
+  min_cage_lug_clearance_mm: 5.0
+  alternative_static_margin: 0.07
+
+battery:                       # cell data mirrored from electronics.yaml (pack section)
+  cell_capacity_ah: 5.0
+  cell_nominal_v: 3.6
+  cell_mass_g: 71
+  cells_series: 5
+  pack_overhead_fraction: 0.10
+  usable_fraction: 0.85        # 4.2 -> 3.0 V/cell, reserve held back
+  peukert_exponent: 1.03
+  reference_c_rate: 1.0        # model assumption pending pack discharge tests
+
+contingency_fraction: 0.08

@@ -1,0 +1,430 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WalleringRobotics/UAV_Design_Environment/integration/handoff.schema.json",
+  "title": "Wallering survey-wing design handoff (not flight or survey qualification)",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "platform",
+    "status",
+    "survey_ready",
+    "consumer",
+    "source_files",
+    "hardware",
+    "mission",
+    "capture",
+    "navigation",
+    "geometry",
+    "resources",
+    "compatibility"
+  ],
+  "properties": {
+    "schema": {
+      "const": "wallering.uav-mapping-handoff/v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "platform": {
+      "const": "survey_wing"
+    },
+    "status": {
+      "const": "design_proposal"
+    },
+    "survey_ready": {
+      "const": false
+    },
+    "consumer": {
+      "type": "object",
+      "required": [
+        "repository",
+        "inspected_main_revision",
+        "inspected_survey_branch_revision",
+        "inspected_processing_branch_revision",
+        "inspected_plan_branch_revision",
+        "reviewed_on"
+      ],
+      "properties": {
+        "repository": {
+          "const": "WalleringRobotics/mapping_functionality"
+        },
+        "inspected_main_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "inspected_survey_branch_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "inspected_processing_branch_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "inspected_plan_branch_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "reviewed_on": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "additionalProperties": true
+    },
+    "source_files": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "required": [
+        "camera",
+        "compute_variants"
+      ],
+      "properties": {
+        "camera": {
+          "type": "object",
+          "required": [
+            "part",
+            "geometry",
+            "calibration_state",
+            "selection_policy"
+          ],
+          "properties": {
+            "part": {
+              "type": "string",
+              "minLength": 1
+            },
+            "geometry": {
+              "type": "object",
+              "required": [
+                "pixels_across",
+                "pixels_along",
+                "pixel_um",
+                "focal_mm",
+                "max_fps"
+              ],
+              "properties": {
+                "pixels_across": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "pixels_along": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "pixel_um": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "focal_mm": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "max_fps": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              },
+              "additionalProperties": true
+            },
+            "calibration_state": {
+              "const": "nominal_design_only"
+            },
+            "selection_policy": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": true
+        },
+        "compute_variants": {
+          "type": "object",
+          "required": [
+            "orin",
+            "cm5"
+          ],
+          "properties": {
+            "orin": {
+              "type": "object"
+            },
+            "cm5": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "mission": {
+      "type": "object",
+      "required": [
+        "agl_m",
+        "exposure_s",
+        "blur_limit_px",
+        "forward_overlap",
+        "side_overlap",
+        "max_ground_speed_m_s",
+        "survey_duration_s",
+        "operator_review",
+        "site_boundary",
+        "home_position"
+      ],
+      "properties": {
+        "agl_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "exposure_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "blur_limit_px": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "forward_overlap": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "side_overlap": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "max_ground_speed_m_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "survey_duration_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "operator_review": {
+          "const": "pending"
+        },
+        "site_boundary": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "home_position": {
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "capture": {
+      "type": "object",
+      "required": [
+        "adapter",
+        "requested_fps",
+        "pixel_format",
+        "bytes_per_pixel",
+        "link_bits_per_s",
+        "link_utilisation_limit",
+        "warmup_s",
+        "postroll_s",
+        "capacity_margin_fraction",
+        "free_space_reserve_bytes",
+        "available_storage_bytes",
+        "sustained_write_bytes_per_s"
+      ],
+      "properties": {
+        "adapter": {
+          "const": "basler_gige_proposed"
+        },
+        "requested_fps": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "pixel_format": {
+          "type": "string"
+        },
+        "bytes_per_pixel": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "link_bits_per_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "link_utilisation_limit": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0
+        },
+        "warmup_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "postroll_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "capacity_margin_fraction": {
+          "type": "number",
+          "minimum": 0
+        },
+        "free_space_reserve_bytes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "available_storage_bytes": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "sustained_write_bytes_per_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "navigation": {
+      "type": "object",
+      "required": [
+        "autopilot_family",
+        "vehicle_type",
+        "flight_gnss_independent",
+        "raw_messages_required"
+      ],
+      "properties": {
+        "autopilot_family": {
+          "const": "ArduPilot"
+        },
+        "vehicle_type": {
+          "const": "fixed_wing"
+        },
+        "flight_gnss_independent": {
+          "const": true
+        },
+        "raw_messages_required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "geometry": {
+      "type": "object",
+      "required": [
+        "gsd_m_per_px",
+        "required_trigger_hz",
+        "forward_motion_blur_px",
+        "frame_rate_pass",
+        "blur_pass"
+      ],
+      "properties": {
+        "gsd_m_per_px": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "required_trigger_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "forward_motion_blur_px": {
+          "type": "number",
+          "minimum": 0
+        },
+        "frame_rate_pass": {
+          "type": "boolean"
+        },
+        "blur_pass": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "resources": {
+      "type": "object",
+      "required": [
+        "raw_bytes_per_frame",
+        "raw_bytes_per_s",
+        "minimum_free_storage_bytes",
+        "minimum_sustained_write_bytes_per_s",
+        "link_budget_pass",
+        "storage_capacity_pass",
+        "storage_throughput_pass"
+      ],
+      "properties": {
+        "raw_bytes_per_frame": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "raw_bytes_per_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "minimum_free_storage_bytes": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "minimum_sustained_write_bytes_per_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "link_budget_pass": {
+          "type": "boolean"
+        },
+        "storage_capacity_pass": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "storage_throughput_pass": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "compatibility": {
+      "type": "object",
+      "required": [
+        "capture_supported_on_inspected_main",
+        "survey_plan_supported_on_inspected_branch",
+        "existing_offline_engines_reusable_after_validated_import"
+      ],
+      "properties": {
+        "capture_supported_on_inspected_main": {
+          "const": false
+        },
+        "survey_plan_supported_on_inspected_branch": {
+          "const": false
+        },
+        "existing_offline_engines_reusable_after_validated_import": {
+          "const": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "design_analysis": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

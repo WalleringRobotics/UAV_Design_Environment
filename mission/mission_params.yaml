@@ -1,17 +1,12 @@
+# Shared mission + site parameters — consumed by every platform.
+# Platform-specific design points live in platforms/<platform>/design_point.yaml.
 mission:
   name: "SE Bavaria agricultural survey"
   altitude_asl_m: 500
-  target_hover_endurance_min: 20
   max_wind_speed_ms: 8
   operating_temp_range_c: [-5, 35]
 
-design_point:
-  target_auw_kg: 6.5
-  hover_throttle_fraction: 0.60
-  thrust_to_weight_ratio: 2.0
-  safety_factor: 1.15
-
 environment:
-  # ISA standard atmosphere reference values, used by propulsion model
+  # ISA standard atmosphere reference values, used by propulsion/aero models
   rho_sea_level_kg_m3: 1.225
   temperature_offset_c: 0  # ISA + offset

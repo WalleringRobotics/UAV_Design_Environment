@@ -32,7 +32,12 @@ ENV/
 outputs/figures/*
 !outputs/figures/.gitkeep
 outputs/cache/
+outputs/baseline_parts/
+outputs/review/
+outputs/review.zip
+outputs/validation/
 *.log
 
 # Conda
 .conda/
+outputs/parts/

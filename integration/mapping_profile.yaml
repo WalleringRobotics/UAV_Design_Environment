@@ -1,0 +1,55 @@
+# Proposed survey-wing acquisition contract; no device has qualified this profile.
+schema_version: 1
+platform: survey_wing
+consumer:
+  repository: WalleringRobotics/mapping_functionality
+  inspected_main_revision: 51a3d3237cd6033146b8d0d472d4ff15c1c68dc6
+  inspected_survey_branch_revision: ab05b427e1ed650af858349e01c8294861af4016
+  inspected_processing_branch_revision: b8e48cc1f0ee1b4e5c22afcfe68afd74e17dcb36
+  inspected_plan_branch_revision: 5f8f55b59cb0b61b3ca7cee46c83f32443c36632
+  reviewed_on: '2026-10-10'
+capture:
+  adapter: basler_gige_proposed
+  requested_fps: 4.0  # independent of the selected camera SKU's maximum rate
+  pixel_format: Bayer8_candidate
+  bytes_per_pixel: 1
+  link_bits_per_s: 1000000000
+  link_utilisation_limit: 0.80
+  warmup_s: 60
+  postroll_s: 2
+  capacity_margin_fraction: 0.30
+  free_space_reserve_bytes: 5368709120
+  # Unknown until measured on the final mounted drive, under thermal load.
+  available_storage_bytes: null
+  sustained_write_bytes_per_s: null
+navigation:
+  autopilot_family: ArduPilot
+  vehicle_type: fixed_wing
+  firmware_version: null
+  flight_gnss_independent: true
+  survey_receiver: ZED-F9P
+  raw_messages_required: [UBX-RXM-RAWX, UBX-RXM-SFRBX, UBX-TIM-TM2]
+  exposure_event_input: ExposureActive_to_F9P_EXTINT_proposed
+  event_polarity: null
+  event_delay_ns: null
+  event_sigma_ns: null
+  reference_station: null
+  horizontal_crs: null
+  vertical_datum: null
+mission:
+  # A design request, not an uploadable/autonomous flight plan.
+  site_boundary: null
+  home_position: null
+  max_ground_speed_m_s: null  # defaults to camera/blur design bound
+  survey_duration_s: null     # defaults to the endurance requirement, not an achieved value
+  horizontal_checkpoint_rmse_target_m: null
+  vertical_checkpoint_rmse_target_m: null
+  operator_review: pending
+compute:
+  orin: {role: capture_and_optional_preview, preview_qualified: false}
+  cm5: {role: capture_only, preview_qualified: false}
+camera_policy:
+  selection: preferred_candidate
+  substitute_allowed: true
+  alternatives_require: [global_shutter_or_measured_readout, calibrated_intrinsics, exposure_event_evidence, bandwidth_qualification, updated_mass_and_balance]
+  existing_oak_platform: preserve_unchanged

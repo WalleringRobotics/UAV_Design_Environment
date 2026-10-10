@@ -1,0 +1,18 @@
+# Review ranges and explicitly assumed screening settings; not flight limits.
+airfoil_candidates: [mh45, mh60, mh49, s5010, e186, e184]
+tip_candidates: [e186, e184, mh60]
+aspect_ratios: [6, 7, 8, 9]
+static_margins: [0.04, 0.07, 0.10]
+battery_parallel_counts: [1, 2]
+altitude_factors: [0.5, 0.75, 1.0, 1.25]
+plot_points: 80
+power_speed_factors: [0.75, 2.0]
+wing_loading_factors: [0.5, 1.5]
+exposure_factors: [0.5, 1.0, 2.0]
+servo_screen:
+  surface_deflection_deg: 20
+  servo_deflection_deg: 45
+  torque_margin: 2.0
+  rated_torque_kg_cm: 2.6
+  source: https://servodatabase.com/servo/mks/hv6100
+  status: preliminary hinge-load rule; verify linkage and dynamic loads

@@ -1,90 +1,91 @@
 # Wallering UAV Design Environment
 
-A reproducible Python design environment for the **Tarot X6 hexacopter** platform
-(and future Wallering Robotics multirotor variants). The repository captures every
-sizing decision as parameterised, re-runnable analysis — not a one-shot calculator.
+A reproducible design-to-artifact pipeline for the new Wallering survey wing,
+with the original Tarot X6 multirotor studies retained alongside it. Hardware
+inputs, sizing, printable geometry and the mapping-software interface share
+versioned YAML inputs.
 
-The immediate target is an 850–960 mm hex carrying a modular sensor payload
-(LiDAR, thermal, multispectral, global shutter RGB) on a Pixhawk 6X / PX4 stack
-with an NVIDIA Orin Nano companion computer.
+The existing OAK/PX4 aircraft remains supported by
+[WalleringRobotics/mapping_functionality](https://github.com/WalleringRobotics/mapping_functionality).
+The new fixed wing has its own ArduPilot Plane hardware specification, with a
+Basler IMX542 camera as the preferred, replaceable candidate and Orin/CM5 compute
+options. See [the critical review](docs/critical_review.md) for the branch audit,
+corrected assumptions and remaining evidence gaps.
 
----
+## Generate the deliverables
 
-## Design flow
-
-The notebooks under `sizing/` and `payload/` are intended to be executed in order.
-Each consumes parameters from YAML files and the upstream notebook's outputs:
-
-```
-mission/mission_params.yaml
-        |
-        v
-01_constraint_analysis  --> required T/W, disc loading, min thrust
-        |
-        v
-02_mass_budget          --> AUW, mass tornado chart
-        |
-        v
-03_propulsion_sizing    --> motor / prop / ESC selection
-        |
-        v
-04_power_budget         --> per-rail current, BEC sizing, hover I
-        |
-        v
-05_endurance_estimate   --> Peukert-corrected endurance surface
-        |
-        v
-06_payload_trades       --> swap-bay configuration ranking
-```
-
-## Repository layout
-
-```
-mission/   Mission definition (markdown) + structured YAML params
-sizing/    Notebooks 01-05: constraint, mass, propulsion, power, endurance
-payload/   Payload manifest + swap-bay trade study notebook
-airframe/  Frame geometry parameters (Tarot X6 by default)
-models/    Reusable Python: propulsion, mass, power, endurance models
-outputs/   Auto-generated figures (gitignored)
-docs/      Original design environment spec
-```
-
-## Getting started
+Python 3.12 is the validated environment. CAD is optional for the model package.
 
 ```bash
-# Conda (preferred)
-conda env create -f environment.yml
-conda activate uav-design
-
-# Pip fallback
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-jupyter lab
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[cad,test]'
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MPLBACKEND=Agg
+python scripts/build_parts.py --review-out outputs/review
 ```
 
-Open `sizing/01_constraint_analysis.ipynb` and run top-to-bottom. All notebooks
-read parameters from the YAML files under `mission/`, `airframe/`, and
-`payload/`, so changing a hardware choice is a single-file edit.
+Open `outputs/review/index.html`, or share `outputs/review.zip`. The package contains:
 
-## Conventions
+- STEP assembly and individual parts; print-oriented STL files; four previews;
+  print list and machine-readable part manifest.
+- Electronics/payload/battery BOMs for Orin and CM5, power budgets and unresolved
+  selection/verification items. Prices require quotes.
+- Dedicated hardware and mapping software specifications, a versioned mapping
+  handoff, a calibration template, exact input snapshots and checksums.
+- Design results and launch, battery, propulsion, thermal and balance trades.
 
-- **Units:** SI throughout. Variables carry unit suffixes in code
-  (`mass_kg`, `current_a`, `voltage_v`, `thrust_n`).
-- **Parameters:** Notebooks never hardcode design inputs — edit the YAMLs.
-- **Plots:** Saved automatically to `outputs/figures/` (gitignored).
-- **Reproducibility:** Notebooks must run top-to-bottom on a fresh kernel.
+These are engineering review artifacts. Printer fit and CAD validity are checked;
+physical assembly, material strength and flight performance still need evidence.
+A failed convergence never replaces the committed calibration. Exports reject
+stale CAD and replace prior generated directories only after completing the new
+set. `--no-converge` builds from the saved calibration for repeat/CI checks;
+`--config cm5 --no-converge` evaluates the lighter load on the same airframe.
 
-## Hardware baseline
+## Iteration points
 
-| Item | Value |
+| Change | Input |
 |---|---|
-| Frame | Tarot X6 TL6X001, 960 mm wheelbase |
-| Motors | 6 × (parametric — Tarot 5008/340 KV baseline) |
-| Battery | 6S Li-ion / LiPo, 10–22 Ah swept |
-| Flight controller | Pixhawk 6X |
-| Companion computer | NVIDIA Orin Nano |
-| RTK GNSS | Holybro H-RTK F9P Helical |
-| Operating altitude | ~500 m ASL (SE Bavaria) |
+| Survey, launch, planform, propulsion model | `platforms/survey_wing/design_point.yaml` |
+| Camera/lens/cage and compute choice | `payload/survey_cage.yaml` |
+| Electronics, battery, rails | `platforms/survey_wing/electronics.yaml` |
+| Printer, materials, joints, layout | `platforms/survey_wing/fabrication.yaml` |
+| Mapping capture and mission contract | `integration/mapping_profile.yaml` |
 
-See `docs/uav_design_env_spec.md` for the full session spec.
+Camera changes require both imaging and hardware inputs to change, followed by
+new CAD, timing/intrinsic calibration and a throughput check. Generated
+`calibration.yaml` records the CAD mass correction for the current geometry.
+
+## Analysis and validation
+
+Eight generated survey-wing notebooks cover requirements/payload, airfoil
+selection, sizing, stability/trim, performance, structures, fabrication and
+electronics. The six original multirotor notebooks remain under
+`platforms/multirotor/`. Edit notebook sources in `scripts/nbdefs/`.
+
+```bash
+python scripts/build_notebooks.py
+pytest -q -m 'not cad' --ignore=tests/test_notebooks.py
+pytest -q -m cad
+pytest -q tests/test_notebooks.py  # after the parts build; executes fresh kernels
+```
+
+Use the same BLAS/thread environment as the build command. CI separates fast
+model checks from CAD/artifact generation and executes notebooks after the CAD
+manifest exists. For a matching dependency environment, use the checked-in
+Python 3.12 `requirements-lock.txt` and then `pip install --no-deps -e .`.
+
+## Code and guides
+
+`uavdesign` contains shared atmosphere/mass/power/endurance models, fixed-wing
+geometry and aerodynamics, survey requirements, payload/electronics, sizing and
+engineering checks. `uavdesign.fab` is the optional CadQuery geometry/export
+layer. `uavdesign.integration` validates/seals the mapping handoff;
+`uavdesign.artifacts` builds the distributable review package.
+
+- [Design, printing and assembly guide](docs/survey_wing.md)
+- [Dedicated hardware specification](docs/hardware_spec.md)
+- [Mapping software specification](docs/software_spec.md)
+- [Original handoff and acceptance plan](docs/survey_wing_TODO.md)
+
+SI units are used except CAD geometry in millimetres. The aircraft CAD frame is
+x aft from the root leading edge, y right, z up; it is not an autopilot body frame.

@@ -1,0 +1,149 @@
+# Survey wing — fabrication: printer, materials, part print settings, layout.
+#
+# `python scripts/build_parts.py` turns design_point.yaml + this file into
+# STEP/STL parts that are each checked to fit the printer, plus a print
+# manifest (material, settings, orientation, estimated mass) for PrusaSlicer.
+
+printer:
+  name: "Prusa CORE One+ (MK2)"
+  bed_x_mm: 250
+  bed_y_mm: 220
+  max_z_mm: 270
+  margin_mm: 5              # skirt / brim / wipe clearance on every side
+  nozzle_mm: 0.4
+  nozzle_type: hardened     # hotend add-on (hardened nozzle) on order — required for the CF grades
+  purchase: "Hardened-nozzle hotend add-on for the CORE One+ (stock nozzle is brass CHT)"
+  chamber: "enclosed, heated to 55 C"
+
+materials:
+  lw_asa:
+    name: "colorFabb LW-ASA"
+    density_g_cm3: 0.55     # partially foamed (~250 C); fully foamed is 0.43
+    max_service_c: 96
+    nozzle_c: 250
+    bed_c: 100
+    note: "Foams ~2.5x from 240 C; reduce flow ~40 %. UV stable. Enclosure + brim."
+  asa:
+    name: "Prusament ASA"
+    density_g_cm3: 1.07
+    max_service_c: 93
+    nozzle_c: 260
+    bed_c: 105
+    note: "Alternative pod shell if LW-ASA proves too soft in belly landings."
+  asa_cf:
+    name: "ASA-CF (e.g. Prusament ASA-CF / Fiberlogy ASA-CF)"
+    density_g_cm3: 1.10
+    max_service_c: 95
+    nozzle_c: 260
+    bed_c: 105
+    note: "Stiff parts: survey cage, spar box, avionics tray. Hardened nozzle (hotend add-on). PA-CF is the stronger upgrade if creep shows up."
+  petg:
+    name: "Prusament PETG"
+    density_g_cm3: 1.27
+    max_service_c: 75
+    nozzle_c: 240
+    bed_c: 85
+    note: "Belly skid / sacrificial wear parts."
+
+# Print profiles referenced by parts below (perimeters x width = wall)
+profiles:
+  wing_skin:   {material: lw_asa, perimeters: 1, extrusion_width_mm: 0.50, infill_fraction: 0.07, infill: gyroid, layer_height_mm: 0.25, orientation: "span vertical, root down", supports: none}
+  elevon:      {material: lw_asa, perimeters: 2, extrusion_width_mm: 0.50, infill_fraction: 0.10, infill: gyroid, layer_height_mm: 0.20, orientation: "span vertical", supports: none}
+  fin:         {material: lw_asa, perimeters: 2, extrusion_width_mm: 0.50, infill_fraction: 0.08, infill: gyroid, layer_height_mm: 0.20, orientation: "flat, root edge on bed", supports: none}
+  pod_shell:   {material: lw_asa, perimeters: 3, extrusion_width_mm: 0.50, infill_fraction: 0.15, infill: gyroid, layer_height_mm: 0.20, orientation: "split face down", supports: "tree, outer only"}
+  hatch:       {material: lw_asa, perimeters: 3, extrusion_width_mm: 0.50, infill_fraction: 0.15, infill: gyroid, layer_height_mm: 0.20, orientation: "outer face up", supports: "tree"}
+  structural:  {material: asa_cf, perimeters: 4, extrusion_width_mm: 0.45, infill_fraction: 0.35, infill: gyroid, layer_height_mm: 0.20, orientation: "largest flat face down", supports: none}
+  skid:        {material: petg, perimeters: 3, extrusion_width_mm: 0.45, infill_fraction: 0.30, infill: gyroid, layer_height_mm: 0.20, orientation: "flat", supports: none}
+
+wing:
+  max_segment_span_mm: 245          # leaves margin under the 270 mm Z height
+  chordwise_split_x_over_c: 0.48    # used only when a full section will not fit the bed
+  te_thickness_mm: 0.9              # printable trailing edge
+  hinge_x_over_c: 0.78
+  hinge_gap_mm: 1.2
+  elevon_max_piece_mm: 245
+  servo_x_over_c: 0.62              # pocket centre, ahead of the hinge
+  servo_pocket_mm: [24.5, 12.0, 25.0]  # MKS HV6100 + clearance (span, thickness, chord)
+  wire_channel_mm: 7.0
+  wire_channel_x_over_c: 0.52
+  tube_clearance_mm: 0.25           # radial, for bonded sleeves / sliding joiner
+  alignment_dowel_hole_mm: 3.2      # 3 mm CF locating pins, 16 mm long
+  servo_cover_rim_mm: 5.0
+  servo_cover_thickness_mm: 1.5
+
+pod:
+  nose_x_mm: -175                   # x measured aft of the wing root leading edge
+  wall_mm: 1.4
+  sections:                         # x (mm), width, height, z_centre; superellipse exponent n
+    - {x: -175, w: 20,  h: 24,  z: -6,  n: 2.0}
+    - {x: -140, w: 78,  h: 92,  z: -14, n: 2.4}
+    - {x: -80,  w: 118, h: 140, z: -20, n: 2.8}
+    - {x: 0,    w: 130, h: 165, z: -24, n: 3.0}
+    - {x: 200,  w: 130, h: 160, z: -22, n: 3.0}
+    - {x: 330,  w: 96,  h: 112, z: -10, n: 2.6}
+    - {x: 395,  w: 52,  h: 56,  z: 0,   n: 2.2}
+  split_x_mm: [-15, 215]            # transverse print splits (glue joints with internal lips)
+  lip_mm: 12
+  hatches_x_mm: [[-120, 40], [60, 208], [222, 330]]   # bays: battery, payload (cage), avionics
+  hatch_names: [battery, payload, avionics]
+  hatch_z_above_mm: 40              # hatch cut plane height above the wing chord plane
+  frame_width_mm: 10                # spar-box ring frame depth
+  camera_window_d_mm: 62
+  skid_width_mm: 36
+  firewall_x_mm: 395
+  motor_slot_r_mm: [11.5, 17.0]      # radial slots fit 25-32 mm motor crosses
+  motor_shaft_hole_mm: 14
+
+layout:                             # component placement in the pod (x aft of root LE, z up from chord plane)
+  cage_lens_axis_x_mm: 125          # forward of the spar box; lens looks through the belly window
+  cage_mount:
+    base_half_width_mm: 46
+    hole_inset_mm: 8
+    hole_diameter_mm: 8.4
+    damper_gap_mm: 5                # verify compressed grommet stack on actual parts
+    ledge_thickness_mm: 4
+  # Battery CG may sit in either bay (5S1P, cells along x: 70 x 108 x 22 mm).
+  # Forward bay ahead of the cage; aft bay under the avionics tray behind the spar box.
+  battery_bays_mm: [[-110, 40], [222, 290]]
+  # Explicit pack envelopes supersede the historical unrestricted CG ranges
+  # above. Only these intervals fit the inner shell; installed hardware still
+  # needs a physical interference check. The aft pack is rotated 90 degrees.
+  battery_placements:
+    - {name: forward, cg_range_mm: [-25, 35], center_z_mm: -40, size_mm: [70, 108, 22]}
+    - {name: aft, cg_range_mm: [230, 240], center_z_mm: -50, size_mm: [108, 70, 22]}
+  avionics_tray_height_above_floor_mm: 50
+  cooling_duct:
+    enabled: true
+    outer_size_mm: [14, 24]
+    wall_mm: 1.0
+    inlet_end: last                 # aft belly vent is the dedicated compute inlet
+    inlet_x_span_mm: [318, 342]
+    sections:
+      - [[275, 42, -5], [300, 40, -30]]
+      - [[300, 40, -30], [315, 20, -48]]
+      - [[315, 20, -48], [330, 0, -51]]
+  compute_x_mm: 290
+  avionics_x_mm: 300
+  esc_x_mm: 335
+  motor_x_mm: 420                   # motor CG behind the firewall
+  airspeed_x_mm: -175
+  # Bought-in items: [x, z] in the aircraft frame (y = 0 unless the builder
+  # places them, e.g. servos sit in their wing pockets)
+  positions:
+    flight_controller: [300, -18]
+    flight_gnss:       [235, 62]      # on the payload hatch, behind the antenna mast
+    airspeed:          [-170, -8]
+    power_monitor:     [330, -20]
+    rc_receiver:       [310, -10]
+    datalink:          [285, 0]
+    servo_leads:       [260, -2]
+    reg_12v_compute:   [325, -18]
+    reg_servo:         [325, -12]
+    harness:           [180, -45]
+    motor:             [421, 0]
+    esc:               [335, 25]   # Talon60 envelope above compute; standoff/cooling mount to qualify
+    propeller:         [455, 0]
+    compute:           [290, -5]
+    nvme:              [290, -5]
+    payload_harness:   [150, -40]
+    hardware:          [200, -20]
