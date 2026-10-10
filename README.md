@@ -9,7 +9,7 @@ Two platforms share one set of models:
 | Platform | Directory | Baseline |
 |---|---|---|
 | **Multirotor** | `platforms/multirotor/` | Tarot X6 hexacopter, 6.5 kg, modular sensor payload, Pixhawk 6X + Orin Nano |
-| **Flying wing** | `platforms/flying_wing/` | 700 mm swept tailless wing, ~0.9 kg, pusher, hand-launched |
+| **Survey wing** | `platforms/survey_wing/` | 2.2 m hand-launched flying wing carrying the IMX542 survey cage, printed on a Prusa CORE One+ |
 
 ---
 
@@ -25,7 +25,7 @@ battery, endurance, payloads).
                               |                                |
             +-----------------+----------------+---------------+
             |                                  |
-   platforms/multirotor/               platforms/flying_wing/
+   platforms/multirotor/               platforms/survey_wing/
    T/W, disc loading                   W/S vs P/m matching chart
    momentum-theory hover power         MAC, neutral point, static margin
                                        drag polar, D*V / eta_prop
@@ -56,7 +56,7 @@ mission/                Shared mission definition + site parameters
 payload/                Shared payload manifest
 platforms/
   multirotor/             airframe_params.yaml, design_point.yaml, notebooks 01-06
-  flying_wing/            airframe_params.yaml, design_point.yaml, notebooks 01-05
+  survey_wing/            design_point, electronics, fabrication YAMLs; calibration.yaml (generated)
 scripts/build_notebooks.py   Regenerates notebooks from scripts/nbdefs/<platform>.py
 tests/                  Model tests + "every notebook runs" test
 outputs/figures/<platform>/  Auto-generated plots (gitignored)
@@ -76,7 +76,7 @@ docs/                   Original design environment spec
 06_payload_trades       --> swap-bay configuration ranking
 ```
 
-**Flying wing** (`platforms/flying_wing/`)
+**Flying wing** (`platforms/survey_wing/`)
 
 ```
 01_constraint_analysis       --> W/S vs P/m matching chart, stall + hand-launch limits
@@ -89,6 +89,20 @@ docs/                   Original design environment spec
 The wing geometry model reproduces the rcplanes.online flying-wing CG
 calculator to 0.01 mm for the baseline planform; `tests/test_wing.py` locks
 that in, and also checks that a multi-panel (cranked) wing composes exactly.
+
+## Survey wing: design -> print -> electronics
+
+```
+payload/survey_cage.yaml + platforms/survey_wing/*.yaml
+  -> uavdesign.design.run()      survey speed limit, NeuralFoil polar, mass closure,
+                                 selected hardware, VLM washout/neutral point
+  -> scripts/build_parts.py      CadQuery parts fitted to the CORE One+ (250x220x270),
+                                 printed mass/CG -> calibration.yaml -> re-size (converges)
+  -> outputs/parts/              print-oriented STLs, STEP assembly, PRINT_LIST.md, manifest.json
+```
+
+Electronics spec: `platforms/survey_wing/electronics.yaml` (BOM, provenance, power rails).
+`pip install -e ".[cad]"` for the CAD step.
 
 ## Getting started
 

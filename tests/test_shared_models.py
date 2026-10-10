@@ -44,16 +44,16 @@ def test_multirotor_budget_still_loads():
     assert "payload:global_shutter_rgb" in mb.components_g
 
 
-def test_flying_wing_budget_skips_always_on_and_has_positions():
+def test_budget_positions_and_always_on_switch():
     mb = MassBudget.from_yaml(
-        ROOT / "platforms" / "flying_wing" / "airframe_params.yaml",
+        ROOT / "platforms" / "multirotor" / "airframe_params.yaml",
         ROOT / "payload" / "payload_manifest.yaml",
-        active_payloads=[],
+        active_payloads=["flir_boson_plus"],
         include_always_on=False,
+        payload_positions_mm={"flir_boson_plus": 40.0},
     )
-    assert not any(k.startswith("payload:") for k in mb.components_g)
-    assert set(mb.components_g) == set(mb.positions_mm)
-    mb.cg_x_mm()  # all positioned
+    assert "payload:orin_nano" not in mb.components_g
+    assert mb.positions_mm["payload:flir_boson_plus"] == 40.0
 
 
 def test_unknown_payload_rejected():

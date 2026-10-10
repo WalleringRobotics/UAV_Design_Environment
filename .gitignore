@@ -36,3 +36,4 @@ outputs/cache/
 
 # Conda
 .conda/
+outputs/parts/

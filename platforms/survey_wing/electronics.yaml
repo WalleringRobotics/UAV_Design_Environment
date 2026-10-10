@@ -1,0 +1,209 @@
+# Survey wing — electronics specification (airframe side).
+#
+# The survey payload (camera, lens, F9P, compute) lives in
+# payload/survey_cage.yaml; this file is everything else that is wired into
+# the aircraft. Masses feed the sizing closure and the balance; power and
+# rails feed the power tree in notebook 08.
+#
+# Fields
+#   qty, mass_g (each), power_w (average draw, each), rail, interface
+#   provenance: brand country / where-made as published by the vendor
+#   verified: the spec values were checked against the linked source (Oct 2026)
+#   confirm:   open questions before ordering
+#
+# Selection rules (Wallering stack): non-PRC where a credible option exists,
+# ArduPilot Plane, DroneCAN preferred for peripherals, Li-ion pack, buy local
+# (Bavaria / EU) when equivalent.
+
+pack:
+  chemistry: Li-ion 21700
+  cell: "Molicel P50B (5.0 Ah, 3.6 V, 60 A, 71 g)"
+  cell_source: https://www.18650batterystore.com/products/molicel-21700-p50b-5000mah-50a-battery
+  provenance: "Molicel (Taiwan)"
+  series: 5
+  parallel: 1
+  cell_mass_g: 71
+  cell_capacity_ah: 5.0
+  cell_nominal_v: 3.6
+  cell_min_v: 3.0            # operate to 3.0 V/cell; datasheet cut-off 2.5 V
+  cell_max_v: 4.2
+  overhead_fraction: 0.10    # nickel strip, XT60, balance lead, heat-shrink, foam
+  why_5s: >
+    5S keeps the 12 V compute rail in regulation down to 3.0 V/cell
+    (15 V >= the 13.3 V buck minimum) and suits the 4-5S Hacker motor.
+    4S would drop below 13.3 V mid-flight; 6S has no Hacker match in this power class.
+
+components:
+  # ---------------------------------------------------------------- flight
+  flight_controller:
+    part: "ARK FPV Flight Controller (STM32H743, IIM-42653, BMP390)"
+    qty: 1
+    mass_g: 7.5
+    power_w: 1.0
+    rail: pack
+    interface: "9x PWM/DShot, 5x UART, 1x CAN, 12 V 2 A out; powered direct from the pack (5.5-54 V)"
+    provenance: "ARK Electronics — USA built, NDAA compliant"
+    source: https://arkelectron.com/product/ark-fpv-flight-controller/
+    verified: true
+    group: avionics
+  flight_gnss:
+    part: "ARK TESEO GPS (ST TESEO LIV4F L1/L5, IIS2MDC compass, BMP390)"
+    qty: 1
+    mass_g: 16
+    power_w: 0.5
+    rail: can
+    interface: DroneCAN
+    provenance: "ARK Electronics — Made in USA, NDAA compliant"
+    source: https://arkelectron.com/product/ark-teseo-gps/
+    verified: true
+    group: avionics
+    note: >
+      Independent flight GNSS + compass, so losing the payload F9P never takes
+      navigation with it. The survey F9P stays on the cage for PPK/TIM-TM2.
+  airspeed:
+    part: "Sensirion SDP33 differential-pressure breakout + 4 mm pitot-static tube"
+    qty: 1
+    mass_g: 15
+    power_w: 0.05
+    rail: fc_5v
+    interface: I2C (ArduPilot ARSPD_TYPE = SDP3X)
+    provenance: "Sensor: Sensirion (Switzerland); breakout board to choose"
+    source: https://ardupilot.org/plane/docs/airspeed.html
+    verified: false
+    confirm: "Pick breakout vendor; mount pitot ahead of the pod nose, out of the prop field"
+    group: avionics
+  power_monitor:
+    part: "Mauch HS-050-LV Hall current sensor (sensor board only)"
+    qty: 1
+    mass_g: 12
+    power_w: 0.1
+    rail: fc_5v
+    interface: "analog current to FC CURR_IN; FC measures voltage itself"
+    provenance: "Mauch Electronic (Germany)"
+    source: https://ardupilot.org/plane/docs/common-mauch-power-modules.html
+    verified: true
+    confirm: "LV variant is 2-6S; enter A/V from the board's test sheet. Skip the Mauch BEC: 5.35 V is below the ARK FPV's 5.5 V minimum input"
+    group: avionics
+  rc_receiver:
+    part: "ExpressLRS 2.4 GHz receiver (CRSF to FC)"
+    qty: 1
+    mass_g: 3
+    power_w: 0.3
+    rail: fc_5v
+    interface: UART CRSF
+    provenance: "Common ELRS receivers are PRC-made — no non-PRC option identified"
+    verified: false
+    group: avionics
+  datalink:
+    part: "RTL8812AU module + 2x 5.8 GHz antennas (wfb-ng, 25 mW EIRP)"
+    qty: 1
+    mass_g: 45
+    power_w: 2.5
+    rail: compute_usb
+    interface: "USB3 on the companion computer"
+    provenance: "Existing part (AliExpress module) — PRC"
+    verified: false
+    note: "Per architecture doc §6; powered from the companion computer's USB"
+    group: avionics
+  servo_elevon:
+    part: "MKS HV6100 (10 mm, steel gear, 2.6 kg·cm @ 6.0 V)"
+    qty: 2
+    mass_g: 10
+    power_w: 0.5
+    rail: servo_6v
+    interface: PWM
+    dims_mm: [22.5, 10.0, 23.8]
+    provenance: "MKS Servo Tech (Taiwan)"
+    source: https://servodatabase.com/servo/mks/hv6100
+    verified: true
+    group: avionics
+  servo_leads:
+    part: "Servo extension leads, twisted, 22 AWG"
+    qty: 2
+    mass_g: 12
+    power_w: 0.0
+    rail: none
+    group: avionics
+  # ---------------------------------------------------------------- power
+  reg_12v_compute:
+    part: "Pololu D36V50F12 12 V 4.5 A step-down (13.3-50 V in)"
+    qty: 1
+    mass_g: 7
+    power_w: 0.0
+    rail: pack
+    efficiency: 0.90
+    feeds: compute_12v
+    provenance: "Pololu (USA)"
+    source: https://www.pololu.com/product/4095/specs
+    verified: true
+    group: power
+  reg_servo:
+    part: "Pololu 6 V step-down regulator, >= 2.5 A (D36V28F6 class)"
+    qty: 1
+    mass_g: 4
+    power_w: 0.0
+    rail: pack
+    efficiency: 0.88
+    feeds: servo_6v
+    provenance: "Pololu (USA)"
+    verified: false
+    confirm: "Exact part number for 6 V / >= 2.5 A"
+    group: power
+  harness:
+    part: "XT60 main lead, 14 AWG pack/ESC, 20-26 AWG signal, connectors"
+    qty: 1
+    mass_g: 55
+    power_w: 0.0
+    rail: none
+    group: power
+  # ---------------------------------------------------------------- propulsion
+  motor:
+    part: "Hacker A40-10L V4 500 KV (14-pole, 5 mm shaft, 4-5S)"
+    qty: 1
+    mass_g: 246            # vendor table 246 g; description says 190 g — use the conservative value
+    power_w: 0.0
+    rail: esc
+    dims_mm: [42, 42, 51]
+    provenance: "Hacker Motor GmbH (Ergolding, Bavaria)"
+    source: https://lindinger.at/en/AIRPLANES/ELECTRIC-POWERPLANTS/Motors/HACKER-A40-10L-V4-14-POLE-BRUSHLESS-MOTOR/9738886
+    verified: true
+    confirm: "Weigh on arrival (vendor page lists both 190 g and 246 g); a lighter A30-class on 5S needs Hacker's KV table"
+    group: propulsion
+  esc:
+    part: "40 A 5S ESC with telemetry (Castle Talon 35 / Hacker X-40 class)"
+    qty: 1
+    mass_g: 40
+    power_w: 0.0
+    rail: pack
+    provenance: "Castle Creations (USA) or Hacker (Germany) — confirm model"
+    verified: false
+    confirm: "Choose model; needs >= 40 A, 5S, brake for folding prop, no internal BEC needed"
+    group: propulsion
+  propeller:
+    part: "aeronaut CAMcarbon Z 13x8 folding blades + 42 mm hub + Z spinner"
+    qty: 1
+    mass_g: 45
+    power_w: 0.0
+    rail: none
+    provenance: "aeronaut (Germany)"
+    source: https://www.galaxus.de/en/s5/product/aeronaut-folding-propeller-camcarbon-z-13x8-rc-plane-accessories-17541014
+    verified: false
+    confirm: "Hub/spinner for 5 mm shaft; blade mass; pusher (reverse rotation set in ESC)"
+    group: propulsion
+
+rails:
+  pack:        {voltage_nominal_v: 18.0, from: battery}
+  fc_5v:       {voltage_nominal_v: 5.0, from: flight_controller, capacity_a: 1.5}
+  can:         {voltage_nominal_v: 5.0, from: flight_controller, capacity_a: 1.5}
+  fc_12v:      {voltage_nominal_v: 12.0, from: flight_controller, capacity_a: 2.0}
+  compute_12v: {voltage_nominal_v: 12.0, from: reg_12v_compute, capacity_a: 4.5}
+  compute_usb: {voltage_nominal_v: 5.0, from: compute, capacity_a: 1.0}
+  servo_6v:    {voltage_nominal_v: 6.0, from: reg_servo, capacity_a: 2.5}
+  esc:         {voltage_nominal_v: 18.0, from: pack}
+
+# Payload loads are placed on rails here (the payload file has the numbers)
+payload_rails:
+  camera: fc_12v          # own regulated rail, separate from the compute (doc §11.5)
+  compute: compute_12v
+  nvme: compute_12v
+  gnss_receiver: compute_usb

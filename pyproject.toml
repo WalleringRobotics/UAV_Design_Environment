@@ -14,9 +14,12 @@ dependencies = [
     "pandas",
     "matplotlib",
     "pyyaml",
+    "aerosandbox>=4.2",   # airfoil database, vortex lattice
+    "neuralfoil",         # section polars
 ]
 
 [project.optional-dependencies]
+cad = ["cadquery>=2.4"]
 notebooks = ["jupyterlab", "ipywidgets", "plotly", "seaborn"]
 test = ["pytest", "nbclient", "nbformat", "ipykernel"]
 
@@ -25,4 +28,7 @@ include = ["uavdesign*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["notebooks: executes every platform notebook top-to-bottom (slower)"]
+markers = [
+    "notebooks: executes every platform notebook top-to-bottom (slower)",
+    "cad: builds every printed part with CadQuery (minutes)",
+]
