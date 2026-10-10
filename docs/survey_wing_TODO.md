@@ -323,3 +323,59 @@ Every new feature needs a test in `tests/test_fabrication.py`, and parts must st
 ## Out of scope for the agent
 
 Purchasing, choosing between bungee and hand launch, flight testing, and anything touching the Tekever side.
+
+
+## Completed artifact iteration — 10 October 2026
+
+Implementation checkpoint: `3b496d9b4e1e8df935afedff8d0999918309be2f` on
+`codex/artifact-delivery`, consolidated in [PR #4](https://github.com/WalleringRobotics/UAV_Design_Environment/pull/4).
+All five original design-repository branch histories are included. The separate
+mapping branch audit and feature requests are documented in `software_spec.md`.
+
+Validation on Python 3.12 with the committed dependency lock:
+
+| Gate | Result |
+|---|---|
+| Fast model, power, engineering and handoff tests | 117 passed in 10.66 s |
+| CAD, mating geometry, convergence and actual exported meshes | 18 passed in 180.11 s |
+| Fresh notebook kernels and absent-manifest behavior | 15 passed in 63.20 s |
+| Notebook source synchronization | All 14 notebooks match their generators |
+| Longest survey notebook | Stability/trim: 30.98 s, below 60 s limit |
+| Converged build | Two iterations; 155 s including initial preview/package export |
+| Repeat using committed calibration | `--no-converge --review-out outputs/review`: 97 s |
+| File integrity | Exact STEP/STL set, binary STL closure and printer bounds; ZIP CRC/member set and all SHA-256 checks pass |
+| Preview inspection | All four final views inspected; complete tips/planform and clear pod interior |
+| Repository checks | Compile check and `git diff --check` pass |
+
+The local package is `outputs/review/index.html` and `outputs/review.zip` (about
+22 MB compressed), with 120 payload files plus its release manifest and checksum
+file. It identifies the clean implementation checkpoint above. CI rebuilds and
+uploads the same package structure; [the implementation CI run](https://github.com/WalleringRobotics/UAV_Design_Environment/actions/runs/38057719039)
+and PR checks retain the independent runner outcome. A newer documentation-only
+revision does not change the implementation validated here.
+
+| Design result | Value |
+|---|---|
+| Sizing / CAD balance AUW | 3665.718 / 3668.224 g |
+| Mass disagreement | 0.0684% |
+| Span / wing area | 2.28951 m / 0.655232 m² |
+| Printed parts / estimated mass | 42 / 1488.8 g (wing 902.2, pod 463.5, cage 123.1) |
+| Battery | Forward bay, x=35 mm, z=-40 mm; real envelope fits |
+| Achieved / target static margin | 9.37% / 6%; target battery x=124.63 mm is unavailable |
+| Estimated cruise endurance | Orin 49.44 min; CM5 64.08 min, same 5S1P airframe |
+
+This completes the reproducible review-artifact iteration, including the missing
+CAD features, eight survey notebooks, engineering trades, dedicated hardware
+specification and additive mapping handoff. It does not close physical aircraft
+acceptance. The current Orin candidate misses the 50-minute target slightly;
+neither original cage-shift nor 7% margin proposal resolves the fitted CG range.
+Layout/pack distribution and trim therefore remain the next mechanical trade.
+The 8 m/s mission wind bound also exceeds the current camera's allowable tailwind
+at modeled cruise speed; mapping issue #28 requires explicit refusal/planning.
+
+The undersized 40 A ESC placeholder was replaced by the documented Talon 60
+candidate and its 57 g mass. The selected Basler IMX542 SKU was corrected, with
+substitution retained. Folding-prop clearance, measured printed masses/strength,
+ESC and compute cooling, exact carrier/regulator/breakout SKUs, a pin-level
+harness, and measured camera/GNSS timing/calibration remain explicit physical
+prototype requirements. No purchase, launch-method change or flight occurred.
