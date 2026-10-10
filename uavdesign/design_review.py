@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import html
+import base64
+import copy
+import io
 import importlib.metadata
 import json
 import os
@@ -143,9 +146,15 @@ def _offline_html(document: str, original_dir: Path, destination_dir: Path, pack
 def _notebook_html(nb, source: Path, destination: Path, package: Path):
     from nbconvert import HTMLExporter
 
+    # Jupyter uses MathJax; static review HTML must render equations without a CDN.
+    # Preserve LaTeX in the downloadable notebook and replace it only in this copy.
+    rendered = copy.deepcopy(nb)
+    for cell in rendered.cells:
+        if cell.cell_type == "markdown":
+            cell.source = _math_images(cell.source)
     exporter = HTMLExporter(template_name="classic", embed_images=True,
                             require_js_url="", mathjax_url="", jquery_url="")
-    document, _ = exporter.from_notebook_node(nb, resources={
+    document, _ = exporter.from_notebook_node(rendered, resources={
         "metadata": {"path": str(source.parent), "name": source.stem}})
     document = _offline_html(document, source.parent, destination.parent, package)
     banner = ('<div style="padding:18px 30px;background:#e7f0f5;font:16px system-ui">'
@@ -154,6 +163,33 @@ def _notebook_html(nb, source: Path, destination: Path, package: Path):
               f'<a href="{destination.with_suffix(".ipynb").name}">Download notebook</a></div>')
     document = re.sub(r"(<body[^>]*>)", r"\1" + banner, document, count=1)
     destination.write_text(document)
+
+
+def _math_images(markdown: str) -> str:
+    """Embed the supported math notation as accessible PNGs, retaining code verbatim."""
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.mathtext import math_to_image
+    from PIL import Image
+
+    def render(match):
+        expression = match.group()
+        block = expression.startswith("$$")
+        inner = expression[2:-2] if block else expression[1:-1]
+        inner = " ".join(inner.split())
+        stream = io.BytesIO()
+        math_to_image("$" + inner + "$", stream, prop=FontProperties(size=14 if block else 12),
+                      dpi=160, format="png")
+        width, height = Image.open(io.BytesIO(stream.getvalue())).size
+        image = (f'<img alt="{html.escape(inner, quote=True)}" '
+                 f'src="data:image/png;base64,{base64.b64encode(stream.getvalue()).decode()}" '
+                 f'style="width:{width/2:g}px;max-width:100%;height:auto;vertical-align:middle"/>')
+        return '\n\n<div style="margin:16px 0;overflow:auto">' + image + '</div>\n\n' if block else image
+
+    # Markdown code examples are evidence, not presentation math.
+    sections = re.split(r"(```[\s\S]*?```|`[^`\n]+`)", markdown)
+    for i in range(0, len(sections), 2):
+        sections[i] = re.sub(r"\$\$[\s\S]+?\$\$|(?<!\$)\$[^$\n]+?\$(?!\$)", render, sections[i])
+    return "".join(sections)
 
 
 def execute_notebooks(source_root: Path, destination: Path, *, progress=print) -> list[dict]:

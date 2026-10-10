@@ -82,6 +82,22 @@ def test_offline_html_has_embedded_output_and_portable_evidence_links(tmp_path):
     assert 'href="../source/integration/feature_requests/camera.md"' in result
 
 
+def test_actual_notebook_equations_render_without_javascript():
+    from uavdesign.design_review import _math_images
+    root = Path(__file__).resolve().parents[1]
+    expressions = 0
+    for path in (root / "platforms/survey_wing").glob("*.ipynb"):
+        for cell in json.loads(path.read_text())["cells"]:
+            if cell["cell_type"] != "markdown":
+                continue
+            source = "".join(cell["source"])
+            rendered = _math_images(source)
+            expressions += rendered.count("data:image/png;base64,")
+            assert "<script" not in rendered
+    assert expressions >= 20
+    assert _math_images('Keep `$literal$` and ```\n$code$\n```') == 'Keep `$literal$` and ```\n$code$\n```'
+
+
 def test_notebooks_execute_in_fresh_kernels_and_embed_actual_outputs(tmp_path):
     nbformat = pytest.importorskip("nbformat")
     pytest.importorskip("nbconvert")
