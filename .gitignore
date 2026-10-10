@@ -35,6 +35,8 @@ outputs/cache/
 outputs/baseline_parts/
 outputs/review/
 outputs/review.zip
+outputs/design_review/
+outputs/design_review.zip
 outputs/validation/
 *.log
 
