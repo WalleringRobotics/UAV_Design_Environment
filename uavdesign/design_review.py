@@ -89,7 +89,8 @@ def validate_release(directory: Path, source_hashes: dict) -> dict:
     path = directory / "release_manifest.json"
     if not path.is_file():
         raise ValueError("Build outputs/review first with scripts/build_parts.py --review-out outputs/review")
-    manifest = json.loads(path.read_text())
+    manifest_bytes = path.read_bytes()
+    manifest = json.loads(manifest_bytes)
     entries = manifest.get("files", {})
     if not entries or not manifest.get("source_sha256"):
         raise ValueError("Release manifest lacks file/source provenance")
@@ -97,6 +98,13 @@ def validate_release(directory: Path, source_hashes: dict) -> dict:
     actual = {p.relative_to(directory).as_posix() for p in directory.rglob("*") if p.is_file()}
     if actual != expected:
         raise ValueError("Release file set changed; rebuild outputs/review")
+    checksums = {name: entry["sha256"] for name, entry in entries.items()}
+    checksums["release_manifest.json"] = hashlib.sha256(manifest_bytes).hexdigest()
+    inventory = [line.split("  ", 1) for line in (directory / "SHA256SUMS").read_text().splitlines()]
+    if (len(inventory) != len(checksums) or any(len(row) != 2 for row in inventory)
+            or {row[1] for row in inventory} != set(checksums)
+            or any(checksums.get(name) != digest for digest, name in inventory)):
+        raise ValueError("Release checksum inventory is incomplete or inconsistent; rebuild outputs/review")
     for name, entry in entries.items():
         target = directory / name
         if (target.is_symlink() or not target.resolve().is_relative_to(directory.resolve())
@@ -106,6 +114,8 @@ def validate_release(directory: Path, source_hashes: dict) -> dict:
              if source_hashes.get(name) != digest]
     if stale:
         raise ValueError("Release source changed; rebuild outputs/review: " + ", ".join(stale))
+    if path.read_bytes() != manifest_bytes:
+        raise ValueError("Release manifest changed during validation")
     return manifest
 
 

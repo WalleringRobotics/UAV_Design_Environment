@@ -161,7 +161,7 @@ g = report["geometry"]
 
 assert abs(s["span_m"]**2 / s["wing_area_m2"] - 8.0) < 1e-8
 sm = (b["x_np_mm"] - b["cg_x_mm"]) / g["mac_mm"]
-assert abs(sm - b["static_margin"]) < 1e-10
+assert abs(sm - b["static_margin"]) < 1e-6
 mass_difference = abs(b["auw_g"] - 1000*s["auw_kg"]) / (1000*s["auw_kg"])
 assert mass_difference < 0.01
 
@@ -172,6 +172,11 @@ print({"gsd_m_px": gsd_m_px, "blur_limit_m_s": blur_limit_m_s,
        "raw_bytes_s": raw_bytes_s, "actual_static_margin": sm,
        "mass_difference_fraction": mass_difference})
 ```
+
+The geometric MAC used by this independent check differs slightly from the VLM
+reference MAC used by the balance model (about 0.00011 mm in this baseline).
+The static-margin comparison therefore uses an absolute tolerance of `1e-6`
+rather than requiring floating-point identity between the two methods.
 
 These expected baseline results are 0.01096 m/px, 16.44 m/s, 64,520,960 bytes/s,
 9.3737% static margin, and approximately 0.0684% mass difference. The literal

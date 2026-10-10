@@ -37,7 +37,8 @@ def release(tmp_path):
     manifest = {"files": {"result.json": {"sha256": digest}},
                 "source_sha256": {"uavdesign/model.py": "source-digest"}}
     (tmp_path / "release_manifest.json").write_text(json.dumps(manifest))
-    (tmp_path / "SHA256SUMS").write_text(f"{digest}  result.json\n")
+    manifest_digest = hashlib.sha256((tmp_path / "release_manifest.json").read_bytes()).hexdigest()
+    (tmp_path / "SHA256SUMS").write_text(f"{digest}  result.json\n{manifest_digest}  release_manifest.json\n")
     return tmp_path, manifest["source_sha256"]
 
 
@@ -55,6 +56,28 @@ def test_release_rejects_unlisted_artifacts(release):
     root, hashes = release
     (root / "stale.png").write_bytes(b"old picture")
     with pytest.raises(ValueError, match="file set"):
+        validate_release(root, hashes)
+
+
+@pytest.mark.parametrize("mutation", ["empty", "missing_manifest", "duplicate", "wrong_digest", "extra", "malformed"])
+def test_release_rejects_inconsistent_checksum_inventory(release, mutation):
+    root, hashes = release
+    path = root / "SHA256SUMS"
+    lines = path.read_text().splitlines()
+    if mutation == "empty":
+        lines = []
+    elif mutation == "missing_manifest":
+        lines = lines[:1]
+    elif mutation == "duplicate":
+        lines[1] = lines[0]
+    elif mutation == "wrong_digest":
+        lines[0] = '0' * 64 + '  result.json'
+    elif mutation == "extra":
+        lines.append('0' * 64 + '  extra.json')
+    else:
+        lines[0] = 'invalid checksum line'
+    path.write_text('\n'.join(lines) + '\n')
+    with pytest.raises(ValueError, match="checksum inventory"):
         validate_release(root, hashes)
 
 
