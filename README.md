@@ -1,172 +1,91 @@
 # Wallering UAV Design Environment
 
-A reproducible Python design environment for Wallering Robotics airframes. The
-repository captures every sizing decision as parameterised, re-runnable
-analysis — not a one-shot calculator.
+A reproducible design-to-artifact pipeline for the new Wallering survey wing,
+with the original Tarot X6 multirotor studies retained alongside it. Hardware
+inputs, sizing, printable geometry and the mapping-software interface share
+versioned YAML inputs.
 
-Two platforms share one set of models:
+The existing OAK/PX4 aircraft remains supported by
+[WalleringRobotics/mapping_functionality](https://github.com/WalleringRobotics/mapping_functionality).
+The new fixed wing has its own ArduPilot Plane hardware specification, with a
+Basler IMX542 camera as the preferred, replaceable candidate and Orin/CM5 compute
+options. See [the critical review](docs/critical_review.md) for the branch audit,
+corrected assumptions and remaining evidence gaps.
 
-| Platform | Directory | Baseline |
-|---|---|---|
-| **Multirotor** | `platforms/multirotor/` | Tarot X6 hexacopter, 6.5 kg, modular sensor payload, Pixhawk 6X + Orin Nano |
-| **Survey wing** | `platforms/survey_wing/` | 2.2 m hand-launched flying wing carrying the IMX542 survey cage, printed on a Prusa CORE One+ |
+## Generate the deliverables
 
----
-
-## How the pieces fit
-
-Each platform has its own **front end** (how the airframe turns weight into
-power required) and shares a common **back end** (mass, avionics power,
-battery, endurance, payloads).
-
-```
-                 mission/mission_params.yaml       payload/payload_manifest.yaml
-                      (site, environment)            (sensors: mass, power)
-                              |                                |
-            +-----------------+----------------+---------------+
-            |                                  |
-   platforms/multirotor/               platforms/survey_wing/
-   T/W, disc loading                   W/S vs P/m matching chart
-   momentum-theory hover power         MAC, neutral point, static margin
-                                       drag polar, D*V / eta_prop
-            |                                  |
-            +----------------+-----------------+
-                             |
-                 electrical power per mission segment
-                             |
-                 uavdesign.endurance   (Peukert, reserve, mission energy)
-                 uavdesign.mass        (rollup, contingency, tornado, CG)
-                 uavdesign.power       (avionics + payload rails, BEC sizing)
-```
-
-The seam is **electrical power at the pack**. Once a platform reduces a flight
-segment to watts, battery sizing and endurance are identical for both.
-
-## Repository layout
-
-```
-uavdesign/              Installable package — every model lives here
-  atmosphere.py           ISA density, wing-loading unit helpers
-  mass.py                 Mass budget, contingency, tornado, CG + battery placement
-  power.py                Avionics/payload multi-rail power budget
-  endurance.py            Battery, Peukert, mission-segment energy
-  propulsion.py           Rotor (hover) and propeller (cruise) power, shaft -> electrical
-  aero/                   Fixed wing: planform/MAC/static margin, drag polar, constraints
-mission/                Shared mission definition + site parameters
-payload/                Shared payload manifest
-platforms/
-  multirotor/             airframe_params.yaml, design_point.yaml, notebooks 01-06
-  survey_wing/            design_point, electronics, fabrication YAMLs; calibration.yaml (generated)
-scripts/build_notebooks.py   Regenerates notebooks from scripts/nbdefs/<platform>.py
-tests/                  Model tests + "every notebook runs" test
-outputs/figures/<platform>/  Auto-generated plots (gitignored)
-docs/                   Original design environment spec
-```
-
-## Design flows
-
-**Multirotor** (`platforms/multirotor/`)
-
-```
-01_constraint_analysis  --> required T/W, disc loading, min thrust
-02_mass_budget          --> AUW, mass tornado chart
-03_propulsion_sizing    --> motor / prop / ESC selection
-04_power_budget         --> per-rail current, BEC sizing
-05_endurance_estimate   --> Peukert-corrected endurance surface
-06_payload_trades       --> swap-bay configuration ranking
-```
-
-**Flying wing** (`platforms/survey_wing/`)
-
-```
-01_constraint_analysis       --> W/S vs P/m matching chart, stall + hand-launch limits
-02_geometry_and_cg           --> MAC, neutral point, target CG for the static margin
-03_mass_and_balance          --> component rollup, battery placement, ballast check
-04_aero_performance          --> drag polar, power-required curve, stall-limited speeds
-05_propulsion_and_endurance  --> cruise power -> shared endurance model, capacity sweep
-```
-
-The wing geometry model reproduces the rcplanes.online flying-wing CG
-calculator to 0.01 mm for the baseline planform; `tests/test_wing.py` locks
-that in, and also checks that a multi-panel (cranked) wing composes exactly.
-
-## Survey wing: design -> print -> electronics
-
-```
-payload/survey_cage.yaml + platforms/survey_wing/*.yaml
-  -> uavdesign.design.run()      survey speed limit, NeuralFoil polar, mass closure,
-                                 selected hardware, VLM washout/neutral point
-  -> scripts/build_parts.py      CadQuery parts fitted to the CORE One+ (250x220x270),
-                                 printed mass/CG -> calibration.yaml -> re-size (converges)
-  -> outputs/parts/              print-oriented STLs, STEP assembly, PRINT_LIST.md, manifest.json
-```
-
-Electronics spec: `platforms/survey_wing/electronics.yaml` (BOM, provenance, power rails).
-`pip install -e ".[cad]"` for the CAD step.
-
-## Getting started
+Python 3.12 is the validated environment. CAD is optional for the model package.
 
 ```bash
-# Conda (preferred)
-conda env create -f environment.yml
-conda activate uav-design
-
-# Pip fallback
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt      # includes `pip install -e .`
-
-pytest                               # models + run every notebook
-jupyter lab
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[cad,test]'
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MPLBACKEND=Agg
+python scripts/build_parts.py --review-out outputs/review
 ```
 
-Open a platform's `01_*.ipynb` and run top-to-bottom. Notebooks also work
-without installing the package: their first cell finds the repo root.
+Open `outputs/review/index.html`, or share `outputs/review.zip`. The package contains:
 
-## Conventions
+- STEP assembly and individual parts; print-oriented STL files; four previews;
+  print list and machine-readable part manifest.
+- Electronics/payload/battery BOMs for Orin and CM5, power budgets and unresolved
+  selection/verification items. Prices require quotes.
+- Dedicated hardware and mapping software specifications, a versioned mapping
+  handoff, a calibration template, exact input snapshots and checksums.
+- Design results and launch, battery, propulsion, thermal and balance trades.
 
-- **Units:** SI throughout, with unit suffixes in names (`mass_kg`,
-  `current_a`, `voltage_v`, `thrust_n`). Exception: wing geometry is in mm,
-  matching how small planforms are drawn; flying-wing positions are measured
-  aft of the wing root leading edge.
-- **Parameters:** Notebooks never hardcode design inputs — edit the YAMLs.
-  Shared inputs live in `mission/` and `payload/`; platform inputs in
-  `platforms/<platform>/`.
-- **Notebooks are generated:** edit `scripts/nbdefs/<platform>.py`, then run
-  `python scripts/build_notebooks.py`.
-- **Plots:** Saved to `outputs/figures/<platform>/` (gitignored).
-- **Reproducibility:** Notebooks must run top-to-bottom on a fresh kernel —
-  enforced by `tests/test_notebooks.py` in CI.
+These are engineering review artifacts. Printer fit and CAD validity are checked;
+physical assembly, material strength and flight performance still need evidence.
+A failed convergence never replaces the committed calibration. Exports reject
+stale CAD and replace prior generated directories only after completing the new
+set. `--no-converge` builds from the saved calibration for repeat/CI checks;
+`--config cm5 --no-converge` evaluates the lighter load on the same airframe.
 
-## Adding a platform
+## Iteration points
 
-1. Create `platforms/<name>/` with `airframe_params.yaml` and `design_point.yaml`.
-2. Write the front end (power required per flight segment) using
-   `uavdesign.propulsion` / `uavdesign.aero`, adding models to the package
-   rather than to notebooks.
-3. Add `scripts/nbdefs/<name>.py` and register it in `scripts/build_notebooks.py`.
-
-## Hardware baselines
-
-**Multirotor**
-
-| Item | Value |
+| Change | Input |
 |---|---|
-| Frame | Tarot X6 TL6X001, 960 mm wheelbase |
-| Motors | 6 × (parametric — Tarot 5008/340 KV baseline) |
-| Battery | 6S Li-ion / LiPo, 10–22 Ah swept |
-| Flight controller | Pixhawk 6X |
-| Companion computer | NVIDIA Orin Nano |
-| RTK GNSS | Holybro H-RTK F9P Helical |
+| Survey, launch, planform, propulsion model | `platforms/survey_wing/design_point.yaml` |
+| Camera/lens/cage and compute choice | `payload/survey_cage.yaml` |
+| Electronics, battery, rails | `platforms/survey_wing/electronics.yaml` |
+| Printer, materials, joints, layout | `platforms/survey_wing/fabrication.yaml` |
+| Mapping capture and mission contract | `integration/mapping_profile.yaml` |
 
-**Flying wing** (component masses are placeholders until parts are weighed)
+Camera changes require both imaging and hardware inputs to change, followed by
+new CAD, timing/intrinsic calibration and a throughput check. Generated
+`calibration.yaml` records the CAD mass correction for the current geometry.
 
-| Item | Value |
-|---|---|
-| Planform | Root 275 mm, tip 107 mm, half span 350 mm, LE sweep 217 mm (31.8°) |
-| Wing area / AR | 13.37 dm², 3.66 |
-| Static margin | 6 % MAC |
-| Battery | 3S Li-ion, 5 Ah baseline, 2.5–10 Ah swept |
-| Propulsion | Pusher, parametric |
+## Analysis and validation
 
-Both platforms operate at ~500 m ASL (SE Bavaria). See
-`docs/uav_design_env_spec.md` for the original session spec.
+Eight generated survey-wing notebooks cover requirements/payload, airfoil
+selection, sizing, stability/trim, performance, structures, fabrication and
+electronics. The six original multirotor notebooks remain under
+`platforms/multirotor/`. Edit notebook sources in `scripts/nbdefs/`.
+
+```bash
+python scripts/build_notebooks.py
+pytest -q -m 'not cad' --ignore=tests/test_notebooks.py
+pytest -q -m cad
+pytest -q tests/test_notebooks.py  # after the parts build; executes fresh kernels
+```
+
+Use the same BLAS/thread environment as the build command. CI separates fast
+model checks from CAD/artifact generation and executes notebooks after the CAD
+manifest exists. For a matching dependency environment, use the checked-in
+Python 3.12 `requirements-lock.txt` and then `pip install --no-deps -e .`.
+
+## Code and guides
+
+`uavdesign` contains shared atmosphere/mass/power/endurance models, fixed-wing
+geometry and aerodynamics, survey requirements, payload/electronics, sizing and
+engineering checks. `uavdesign.fab` is the optional CadQuery geometry/export
+layer. `uavdesign.integration` validates/seals the mapping handoff;
+`uavdesign.artifacts` builds the distributable review package.
+
+- [Design, printing and assembly guide](docs/survey_wing.md)
+- [Dedicated hardware specification](docs/hardware_spec.md)
+- [Mapping software specification](docs/software_spec.md)
+- [Original handoff and acceptance plan](docs/survey_wing_TODO.md)
+
+SI units are used except CAD geometry in millimetres. The aircraft CAD frame is
+x aft from the root leading edge, y right, z up; it is not an autopilot body frame.

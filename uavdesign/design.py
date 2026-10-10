@@ -307,7 +307,7 @@ def propulsion_checks(d: Design) -> dict:
                 voltage_v=voltage, rho=d.rho, ct=screen["ct"], cp=screen["cp"],
                 loaded_rpm_fraction=screen["loaded_rpm_fraction"],
                 required_static_tw=d.design["requirements"]["launch_static_thrust_to_weight"],
-                esc_rating_a=screen["esc_rating_a"], cruise_electrical_power_w=cruise_power,
+                esc_rating_a=d.electronics.components["esc"]["current_rating_a"], cruise_electrical_power_w=cruise_power,
                 motor_efficiency=cfg["motor_efficiency"], esc_efficiency=cfg["esc_efficiency"],
                 current_headroom=screen["current_headroom"],
             )

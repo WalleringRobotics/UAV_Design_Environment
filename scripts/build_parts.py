@@ -2,7 +2,7 @@
 
     python scripts/build_parts.py                 # converge design <-> CAD, export everything
     python scripts/build_parts.py --no-converge   # one build with the current calibration.yaml
-    python scripts/build_parts.py --config cm5    # place the light payload for the balance report
+    python scripts/build_parts.py --config cm5 --no-converge  # evaluate the light payload on the same airframe
 
 Writes outputs/parts/:
     stl/<part>.stl     print-oriented, centred on the CORE One+ bed
@@ -17,15 +17,26 @@ and platforms/survey_wing/calibration.yaml (CAD-measured masses for the sizing l
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+# Small VLM solves are slower with many BLAS worker threads. Keep builds bounded.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 from uavdesign.fab import build as B  # noqa: E402
 from uavdesign.fab.render import render  # noqa: E402
+from cadquery.occ_impl import shapes  # noqa: E402
+# OCC boolean threading is independent of BLAS. Single worker avoids expensive
+# oversubscription on the small, detailed pod cuts in the validated CAD version.
+if hasattr(shapes, "setThreads"):
+    shapes.setThreads(1)
 
 
 def main() -> None:
@@ -35,7 +46,11 @@ def main() -> None:
     ap.add_argument("--out", default=str(ROOT / "outputs" / "parts"))
     ap.add_argument("--no-converge", action="store_true")
     ap.add_argument("--no-render", action="store_true")
+    ap.add_argument("--review-out", help="also export BOM, HW/SW specs, inputs, checksums and ZIP here")
+    ap.add_argument("--max-iter", type=int, default=8)
     args = ap.parse_args()
+    if args.review_out and args.no_render:
+        ap.error("Review package requires previews; omit --no-render")
 
     t0 = time.time()
 
@@ -46,20 +61,26 @@ def main() -> None:
         result = B.build(args.platform, args.config, progress=say)
         history = []
     else:
-        result, history = B.converge(args.platform, args.config, progress=say)
+        result, history = B.converge(args.platform, args.config, max_iter=args.max_iter, progress=say)
         for h in history:
             say("  " + ", ".join(f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}" for k, v in h.items()))
 
     say("exporting")
     B.export(result, args.out)
+    (Path(args.out) / "convergence.json").write_text(json.dumps(history, indent=2)+"\n")
     if not args.no_render:
         say("rendering")
         render(result.parts, Path(args.out) / "preview_iso.png", title="Survey wing — printed parts")
-        render(result.parts, Path(args.out) / "preview_top.png", view=(90, -90))
+        render(result.parts, Path(args.out) / "preview_top.png", view=(90, 0))
         render(result.parts, Path(args.out) / "preview_exploded.png", exploded=60, view=(22, -140))
         render([bp for bp in result.parts if bp.part.group != "wing" and not bp.name.startswith("hatch")],
                Path(args.out) / "preview_pod.png", view=(16, 62), tol=0.8, cutaway_groups=("pod",),
                title="Pod cut-away: survey cage, spar box, avionics tray", zoom=1.0)
+
+    if args.review_out:
+        from uavdesign.artifacts import export_review
+        say("building review package")
+        say(str(export_review(result, args.review_out, args.out)))
 
     b = result.balance
     say(f"parts: {len(result.parts)}, all fit: {result.all_fit}")

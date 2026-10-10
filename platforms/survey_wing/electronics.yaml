@@ -171,14 +171,19 @@ components:
     confirm: "Weigh on arrival (vendor page lists both 190 g and 246 g); a lighter A30-class on 5S needs Hacker's KV table"
     group: propulsion
   esc:
-    part: "40 A 5S ESC with telemetry (Castle Talon 35 / Hacker X-40 class)"
+    part: "Castle Talon 60, 010-0163-00 (60 A, 2-6S)"
     qty: 1
-    mass_g: 40
+    mass_g: 57             # manufacturer mass with wires; connectors in harness allowance
+    current_rating_a: 60
+    dims_mm: [65, 30.2, 10.6]
     power_w: 0.0
     rail: pack
-    provenance: "Castle Creations (USA) or Hacker (Germany) — confirm model"
-    verified: false
-    confirm: "Choose model; needs >= 40 A, 5S, brake for folding prop, no internal BEC needed"
+    interface: "PWM throttle; programmable brake. Castle telemetry is not assumed compatible with ArduPilot"
+    provenance: "Castle Creations — designed and assembled in Kansas, USA, per manufacturer"
+    source: https://www.castlecreations.com/en/talon-60-6s-25-2v-60-amp-esc-with-20-amp-bec-010-0163-00
+    verified: true
+    checked_on: "2026-10-10"
+    confirm: "Confirm stock/revision, brake and 5S Li-ion cutoff settings; isolate unused BEC positive lead (separate servo regulator). Qualify cooling/current at mission temperature; 60 A rating assumes 25 C air at 5 mph. Choose connectors and verify physical routing."
     group: propulsion
   propeller:
     part: "aeronaut CAMcarbon Z 13x8 folding blades + 42 mm hub + Z spinner"

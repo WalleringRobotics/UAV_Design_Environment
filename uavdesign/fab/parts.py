@@ -15,7 +15,8 @@ from dataclasses import dataclass, field
 import cadquery as cq
 import numpy as np
 
-from .geometry import PodGeometry, SparLayout, TubePath, WingGeometry
+from .geometry import (PodGeometry, SparLayout, TubePath, WingGeometry,
+                       cage_mount_datums, hatch_magnet_datums, pod_half_width_at_z)
 
 BIG = 5000.0
 
@@ -177,6 +178,28 @@ def build_wing_panel(
     pw1 = w.point_at(ys_servo, fab_wing["wire_channel_x_over_c"])
     wire = cylinder(pw0, pw1, fab_wing["wire_channel_mm"], extend=2.0)
 
+    # A shallow flat rebate gives the separate cover a real mating seat.
+    cover_rim = float(fab_wing.get("servo_cover_rim_mm", 5.0))
+    cover_t = float(fab_wing.get("servo_cover_thickness_mm", 1.5))
+    cover_x = sp[2] + 2 * cover_rim
+    cover_y = sp[0] + 2 * cover_rim
+    cover_z = min(w.point_at(y, fab_wing["servo_x_over_c"], "upper")[2]
+                  for y in (ys_servo - cover_y / 2, ys_servo + cover_y / 2)) - cover_t
+    cover_rebate = box(ps[0] - cover_x / 2, ps[0] + cover_x / 2,
+                       ys_servo - cover_y / 2, ys_servo + cover_y / 2, cover_z, cover_z + BIG)
+    cover = box(ps[0] - cover_x / 2 + 0.2, ps[0] + cover_x / 2 - 0.2,
+                ys_servo - cover_y / 2 + 0.2, ys_servo + cover_y / 2 - 0.2,
+                cover_z + 0.2, cover_z + cover_t)
+    # Servo arm exits aft; the cover is taped down for access, never carries a servo load.
+    cover = cover.cut(box(ps[0] + sp[2] / 2 - 6, ps[0] + cover_x / 2 + 1,
+                          ys_servo - 3, ys_servo + 3, cover_z - 1, cover_z + 5))
+    dowel_d = float(fab_wing.get("alignment_dowel_hole_mm", 3.2))
+    alignment = []
+    for station in stations[1:-1]:
+        for xc in (0.18, 0.60):
+            p = w.point_at(float(station), xc)
+            alignment.append(cylinder(p - [0, 8, 0], p + [0, 8, 0], dowel_d))
+
     holes = [
         tube_hole(spars.sleeve, clr, extend=1.0),
         tube_hole(spars.outer, clr, extend=1.0),
@@ -189,19 +212,19 @@ def build_wing_panel(
         seg = wing_loft(w, ya, yb, 3)
         for h in holes:
             seg = seg.cut(h)
+        for h in alignment:
+            if h.BoundingBox().ymin < yb and h.BoundingBox().ymax > ya:
+                seg = seg.cut(h)
         if yb > e0 - gap and ya < e1 + gap:
             seg = seg.cut(elevon_void)
         if ya <= ys_servo <= yb:
             seg = seg.cut(servo_pocket)
+            seg = seg.cut(cover_rebate)
         if ya < ys_servo:
             seg = seg.cut(wire)
-        notes = []
+        notes = ["Span joints: 3 mm CF dowels, 16 mm long, in the 3.2 mm locating bores; dry fit before bonding"]
         if i == n_seg - 1:
-            # fin locating pins (2 x 3 mm) in the tip face
-            for xc in (0.30, 0.65):
-                p = w.point_at(yb, xc)
-                seg = seg.cut(cylinder(p + [0, -25, 0], p + [0, 2, 0], 3.2))
-            notes.append("Tip: 2 x 3 mm CF pins locate the fin")
+            notes.append("Tip fin bonded over a fitted root foot; no unmatched pin axes")
         seg = _clean(seg)
         name = f"wing_seg{i + 1}_R"
         whole = Part(name, seg, "wing_skin", (0, 1, 0), "wing", "R", notes)
@@ -215,10 +238,17 @@ def build_wing_panel(
         nrm = np.array([d[1], -d[0], 0.0])
         if nrm[0] < 0:
             nrm = -nrm
+        nrm /= np.linalg.norm(nrm)
+        # Both halves are cut with the same two tools before splitting.
+        # Keep the inner-panel pins aft of the straight joiner sleeve. A short
+        # 12 mm pin also leaves a wall before the nearby wire channel at 52% c.
+        for yy in (ya + (yb - ya) * 0.50, ya + (yb - ya) * 0.80):
+            p = w.point_at(float(yy), xc)
+            seg = seg.cut(cylinder(p - nrm * 6, p + nrm * 6, dowel_d))
         front = _clean(seg.cut(halfspace(pa, nrm)))
         rear = _clean(seg.intersect(halfspace(pa, nrm)))
         parts.append(Part(name + "_front", front, "wing_skin", (0, 1, 0), "wing", "R",
-                          notes + ["Chordwise split: bond front/rear with thin CA + the spar tubes"]))
+                          notes + ["Chordwise split: two 3 x 12 mm CF dowels plus spar tubes; bond with compatible adhesive"]))
         parts.append(Part(name + "_rear", rear, "wing_skin", (0, 1, 0), "wing", "R", list(notes)))
 
     # Elevon pieces
@@ -236,9 +266,21 @@ def build_wing_panel(
     ys = np.linspace(e0, e1, k + 1)
     for i in range(k):
         piece = el_full.intersect(box(-BIG, BIG, float(ys[i]), float(ys[i + 1]), -BIG, BIG))
+        if i == 0:
+            # Reinforced mounting pad for a bought-in control horn; pilot holes
+            # are vertical and must be drilled for the selected horn fasteners.
+            hp = w.point_at(ys_servo, hinge_xc + 0.09, "upper")
+            pad = box(hp[0] - 8, hp[0] + 8, ys_servo - 7, ys_servo + 7, hp[2] - 2, hp[2] + 3)
+            piece = piece.fuse(pad)
+            for xx in (hp[0] - 4, hp[0] + 4):
+                piece = piece.cut(cylinder([xx, ys_servo, hp[2] - 10], [xx, ys_servo, hp[2] + 5], 2.0))
         parts.append(Part(f"elevon{i + 1}_R", _clean(piece), "elevon", (0, 1, 0), "wing", "R",
                           ["Top-surface tape hinge; sand a 25 deg bevel on the lower leading edge",
-                           "Pieces joined on a 3 mm CF rod along the hinge line"] if i == 0 else []))
+                           "Reinforced pad with 2 mm pilot holes at 8 mm centres: confirm bought-in control horn",
+                           "Bond elevon pieces with a local glass/CF doubler; no unmodelled hinge-rod bore"] if i == 0 else []))
+    parts.append(Part("servo_cover_R", _clean(cover), "structural", (0, 0, 1), "wing", "R",
+                      ["Tape onto the recessed seat; 0.2 mm assembly clearance; rear slot clears servo arm",
+                       "Servo attachment and horn travel require hardware fit check"]))
     return parts
 
 
@@ -262,11 +304,13 @@ def build_fin(w: WingGeometry, area_mm2: float, height_mm: float, sweep_deg: flo
     z0 = tip_top - 3.0
     z1 = z0 + height_mm
     fin = loft([sec(z0, cr, x_le), sec(z1, ct, x_le + height_mm * math.tan(math.radians(sweep_deg)))])
-    for xc in (0.30, 0.65):
-        p = w.point_at(y, xc)
-        fin = fin.cut(cylinder([p[0], y, z0 - 1], [p[0], y, z0 + 22], 3.2))
+    # The previous wing holes were spanwise while fin holes were vertical. A
+    # conformal bonded root replaces those non-mating pin directions.
+    foot = box(x_le + 5, x_le + cr - 5, y - 7, y + 1, z0 - 2, z0 + 3)
+    fin = fin.fuse(foot).cut(wing_loft(w, y - 8, y, 2))
     return Part("fin_R", _clean(fin), "fin", (0, 1, 0), "wing", "R",
-                ["2 x 3 mm CF pins into the wing tip; glue after checking alignment"])
+                ["Bond the reinforced root foot to the wing tip; jig vertical and verify bond strength",
+                 "No locating pins: the prior perpendicular bores were not a mating joint"])
 
 
 # --------------------------------------------------------------------------- #
@@ -275,11 +319,14 @@ def build_fin(w: WingGeometry, area_mm2: float, height_mm: float, sweep_deg: flo
 
 def _pod_lofts(pod: PodGeometry, wall: float, nose_cap: float = 3.0, firewall: float = 4.0):
     xs = [s["x"] for s in pod.sections]
-    outer = loft([pod.section(x) for x in xs], kind="smooth")
+    # Longitudinally ruled bays follow the piecewise section interpolation used
+    # by envelope checks. Smooth high-degree longitudinal lofts made the initial
+    # wing-stub/inner-shell boolean dominate build time on current OCC.
+    outer = loft([pod.section(x) for x in xs], ruled=True, kind="smooth")
     xi = list(xs)
     xi[0] = xs[0] + nose_cap + 8.0
     xi[-1] = xs[-1] - firewall
-    inner = loft([pod.section(x, inset=wall) for x in xi], kind="smooth")
+    inner = loft([pod.section(x, inset=wall) for x in xi], ruled=True, kind="smooth")
     return outer, inner
 
 
@@ -297,6 +344,7 @@ def build_pod(
     podcfg: dict,
     layout: dict,
     printer_fit,
+    cage_standoff_mm: float = 6.0,
 ) -> list[Part]:
     wall = podcfg["wall_mm"]
     outer, inner = _pod_lofts(pod, wall)
@@ -304,6 +352,18 @@ def build_pod(
     # Wing stub: root airfoil out to the pod side, merged into the pod
     stub = loft([w.section(-y_side), w.section(0.0), w.section(y_side)])
     body = outer.fuse(stub).cut(inner)
+
+    # Shared axes locate the complete isolated cage; ledges stay below its tabs.
+    cm = cage_mount_datums(pod, layout, wall, cage_standoff_mm)
+    ledge_t = float(layout.get("cage_mount", {}).get("ledge_thickness_mm", 4.0))
+    ledges = []
+    for sy in (-1, 1):
+        x0 = min(x for x, _ in cm["hole_xy_mm"]) - 9
+        x1 = max(x for x, _ in cm["hole_xy_mm"]) + 9
+        yi, yo = (29.0, 90.0) if sy > 0 else (-90.0, -29.0)
+        ledges.append(box(x0, x1, yi, yo, cm["ledge_top_z_mm"] - ledge_t,
+                          cm["ledge_top_z_mm"]).intersect(outer))
+    body = body.fuse(_fuse_all(ledges))
 
     # Rear-pin sockets: a boss on each inner side wall (the pin does NOT cross the
     # pod interior, which keeps the compute bay clear)
@@ -327,19 +387,20 @@ def build_pod(
         cylinder([xr, -200, zr], [xr, -(half_in - 16), zr], rp.od_mm + 0.3),
         cylinder([xcam, 0, zb - 10], [xcam, 0, zb + 15], podcfg["camera_window_d_mm"]),
         cylinder([xn - 5, 0, znose], [xn + 20, 0, znose], 4.5),                              # pitot
-        box(-75, -25, -22, 22, pod.bottom_z(-50) - 5, pod.bottom_z(-50) + 6),                # cooling inlet
-        box(310, 345, -20, 20, pod.bottom_z(330) - 5, pod.bottom_z(330) + 6),                # cooling outlet
+        box(-75, -25, -22, 22, pod.bottom_z(-50) - 5, pod.bottom_z(-50) + 6),                # forward ventilation
+        box(310, 345, -20, 20, pod.bottom_z(330) - 5, pod.bottom_z(330) + 6),                # ducted compute inlet
         cylinder([xf - 10, 0, zf], [xf + 5, 0, zf], podcfg["motor_shaft_hole_mm"]),
     ]
     r0, r1 = podcfg["motor_slot_r_mm"]
     for ang in (45, 135, 225, 315):
         a = math.radians(ang)
-        c0 = [xf - 10, r0 * math.cos(a), zf + r0 * math.sin(a)]
-        c1 = [xf - 10, r1 * math.cos(a), zf + r1 * math.sin(a)]
-        # slot = two end cylinders + a box-like hull (approximated by 4 cylinders)
-        for t_ in np.linspace(0, 1, 4):
-            c = np.array(c0) + t_ * (np.array(c1) - np.array(c0))
-            cutters.append(cylinder(c, [xf + 5, c[1], c[2]], 3.3))
+        rm = 0.5 * (r0 + r1)
+        plane = cq.Plane(origin=(xf - 10, rm * math.cos(a), zf + rm * math.sin(a)),
+                         xDir=(0, math.cos(a), math.sin(a)), normal=(1, 0, 0))
+        cutters.append(cq.Workplane(plane).slot2D(r1 - r0 + 3.3, 3.3).extrude(15).val())
+    for x, y in cm["hole_xy_mm"]:
+        cutters.append(cylinder([x, y, cm["ledge_top_z_mm"] - ledge_t - 1],
+                                [x, y, cm["ledge_top_z_mm"] + 1], cm["hole_diameter_mm"]))
     # NB: fuse the tools first — OCC mis-handles a compound of *overlapping* tools
     body = _clean(body.cut(_fuse_all(cutters)))
 
@@ -350,12 +411,48 @@ def build_pod(
     body = body.cut(_fuse_all(hatch_boxes))
     names_h = podcfg.get("hatch_names", [f"hatch{i + 1}" for i in range(len(hatches))])
     parts: list[Part] = []
+    body_additions, body_pockets = [], []
     for i, h in enumerate(hatches):
+        # Mating magnet bosses and a sliding tongue: explicit solids, not notes.
+        magnets = hatch_magnet_datums(pod, podcfg, i)
+        hatch_additions, hatch_pockets = [], []
+        for x, y in magnets:
+            # Extend into the shell to connect even where the superellipse slopes.
+            # The lower shell is wider than the upper hatch: extend each ledge
+            # outwards to the shell rather than leaving floating magnet blocks.
+            by0, by1 = (y - 9, 100.0) if y > 0 else (-100.0, y + 9)
+            body_boss = box(x - 6, x + 6, by0, by1, zc - 5, zc).intersect(outer)
+            hatch_boss = box(x - 6, x + 6, y - 9, y + 9, zc + 0.25, zc + 5.5).intersect(outer)
+            body_additions.append(body_boss)
+            hatch_additions.append(hatch_boss)
+            body_pockets.append(cylinder([x, y, zc - 2.2], [x, y, zc + 1], 6.2))
+            hatch_pockets.append(cylinder([x, y, zc - 1], [x, y, zc + 2.45], 6.2))
+        a, b = podcfg["hatches_x_mm"][i]
+        # A tongue beneath the forward bridge uses the actual local crown height
+        # (the nose hatch's crown is below zc at its nominal front boundary).
+        xt = max(a + 14, min(x for x, _ in magnets) - 9)
+        tongue_z = zc - 3.5
+        tongue = box(xt - 9, xt + 5, -7, 7, tongue_z, tongue_z + 2)
+        # Support the tongue from the hatch side via a small central bracket.
+        bracket = box(xt + 2, xt + 7, -7, 7, tongue_z, pod.top_z(xt + 4))
+        hatch_additions.extend([tongue, bracket.intersect(outer)])
+        h = h.fuse(_fuse_all(hatch_additions)).cut(_fuse_all(hatch_pockets))
+        receiver = box(xt - 12, xt + 2, -10, 10, tongue_z - 2, tongue_z + 4)
+        receiver = receiver.cut(box(xt - 10, xt + 3, -7.3, 7.3, tongue_z - 0.25, tongue_z + 2.25))
+        # Receivers connect to the front hatch bridge using a central web.
+        web = box(a - 3, max(a + 1, xt - 9), -10, 10, tongue_z - 2, tongue_z)
+        anchor = box(a - 3, a - 0.25, -10, 10, tongue_z - 2,
+                     max(tongue_z + 1, pod.top_z(a))).intersect(outer)
+        body_additions.extend([receiver, web.intersect(outer), anchor])
         for a, b in [podcfg["hatches_x_mm"][i]]:
             if a <= xcam <= b:
                 h = h.cut(cylinder([xcam, 0, 0], [xcam, 0, 200], 42))   # antenna mast passage
         parts.append(Part(f"hatch_{names_h[i]}", _clean(h), "hatch", (0, 0, 1), "pod", "C",
-                          ["Retain with 6x2 mm magnets + a front tongue; tape the seam for flight"]))
+                          ["Four 6 x 2 mm magnets in 6.2 x 2.2 mm pockets; match polarity to pod rim",
+                           "Front sliding tongue has 0.25 mm vertical and 0.3 mm lateral clearance; tape seam for flight"]))
+
+    # One union/cut against the expensive spline shell, instead of 30 booleans.
+    body = _clean(body.fuse(_fuse_all(body_additions)).cut(_fuse_all(body_pockets)))
 
     # Transverse print splits
     splits = sorted(podcfg["split_x_mm"])
@@ -427,6 +524,7 @@ def build_skid(pod: PodGeometry, podcfg: dict, layout: dict) -> list[Part]:
 def build_cage(pod: PodGeometry, payload_members: dict, layout: dict, standoff: float, wall: float) -> Part:
     """Rigid camera + GNSS cage (ASA-CF), lens axis at layout x, centred on y=0."""
     xc = layout["cage_lens_axis_x_mm"]
+    mounts = cage_mount_datums(pod, layout, wall, standoff)
     z0 = pod.bottom_z(xc) + wall + standoff                 # lens front face
     lens = payload_members["lens"]["envelope_mm"]
     cam = payload_members["camera"]["envelope_mm"]
@@ -442,12 +540,12 @@ def build_cage(pod: PodGeometry, payload_members: dict, layout: dict, standoff: 
     boss = boss.cut(box(xc + lens_d / 2 + 2, xc + lens_d / 2 + 12, -1.0, 1.0, ring_z0, ring_z0 + ring_h))
     boss = boss.cut(cylinder([xc + lens_d / 2 + 7.5, -8, ring_z0 + ring_h / 2], [xc + lens_d / 2 + 7.5, 8, ring_z0 + ring_h / 2], 3.3))
     # base plate with damper tabs
-    half = 46.0
+    half = mounts["half_width_mm"]
     base = box(xc - half, xc + half, -half, half, ring_z0, ring_z0 + 4)
     base = base.cut(cq.Solid.makeCylinder(lens_d / 2 + 0.3, 10, cq.Vector(xc, 0, ring_z0 - 1)))
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            base = base.cut(cq.Solid.makeCylinder(4.2, 10, cq.Vector(xc + sx * (half - 8), sy * (half - 8), ring_z0 - 1)))
+    for x, y in mounts["hole_xy_mm"]:
+        base = base.cut(cq.Solid.makeCylinder(mounts["hole_diameter_mm"] / 2, 10,
+                                            cq.Vector(x, y, ring_z0 - 1)))
     # posts up to the receiver plate
     top_z = z0 + rx["position_mm"][2] - 4
     posts = None
@@ -484,11 +582,108 @@ def build_tray(pod: PodGeometry, layout: dict, wall: float, x_start: float) -> P
     """Universal avionics/compute tray: 3 mm plate with a 10 mm M3 grid, aft of the spar box."""
     x0, x1 = x_start, layout["esc_x_mm"] + 5
     xm = 0.5 * (x0 + x1)
-    zt = pod.bottom_z(xm) + 30
+    zt = pod.bottom_z(xm) + float(layout.get("avionics_tray_height_above_floor_mm", 30.0))
     width = pod.at(x1)["w"] - 2 * wall - 12
     plate = box(x0, x1, -width / 2, width / 2, zt, zt + 3)
     for gx in np.arange(x0 + 10, x1 - 5, 10.0):
         for gy in np.arange(-width / 2 + 10, width / 2 - 5, 10.0):
             plate = plate.cut(cq.Solid.makeCylinder(1.7, 5, cq.Vector(float(gx), float(gy), zt - 1)))
+    duct = layout.get("cooling_duct", {})
+    if duct.get("enabled", False):
+        # The inlet is below the tray and the heatsink above it. Cut a real
+        # pass-through with 1 mm clearance around the complete duct envelope.
+        hw, hh = (float(v) / 2 + 1.0 for v in duct["outer_size_mm"])
+        for stations in duct["sections"]:
+            profiles = [np.array([[x, y - hw, z - hh], [x, y + hw, z - hh],
+                                  [x, y + hw, z + hh], [x, y - hw, z + hh]]) for x, y, z in stations]
+            plate = plate.cut(loft(profiles, ruled=True, kind="polygon"))
     return Part("avionics_tray", _clean(plate), "structural", (0, 0, 1), "pod", "C",
-                ["Orin/CM5 carrier, ESC, regulators and FC on standoffs; rests on the bulkhead and pod floor"])
+                ["Orin/CM5 carrier, ESC, regulators and FC on standoffs; rests on the bulkhead and pod floor",
+                 "Side opening clears the compute cooling duct by 1 mm"])
+
+
+def build_battery_trays(pod: PodGeometry, layout: dict, wall: float) -> list[Part]:
+    """Slotted trays covering the validated CG travel in each configured bay.
+
+    Strap slots run along x so two straps can move with the real pack. Trays
+    require bonded supports/fasteners after a physical airframe fit check.
+    """
+    out = []
+    for bay in layout.get("battery_placements", []):
+        lo, hi = bay["cg_range_mm"]
+        length, width, height = bay["size_mm"]
+        x0, x1 = lo - length / 2 - 3, hi + length / 2 + 3
+        z = bay["center_z_mm"] - height / 2
+        # A 0.5 mm edge margin clears the narrowing belly at both travel limits.
+        half = width / 2 + 0.5
+        tray = box(x0, x1, -half, half, z - 3, z)
+        for sy in (-1, 1):
+            cy = sy * (width / 2 - 6)
+            tray = tray.cut(box(x0 + 7, x1 - 7, cy - 2.2, cy + 2.2, z - 4, z + 1))
+        out.append(Part(f"battery_tray_{bay['name']}", _clean(tray), "structural", (0, 0, 1), "pod", "C",
+                        [f"Pack envelope {length} x {width} x {height} mm; two 20 mm straps slide in the 4.4 mm elongated slots",
+                         "Bond tray onto fitted foam/shell supports; positive fore/aft pack stops still require physical fit",
+                         "Forward and aft trays are alternatives; fitted mass budget conservatively includes both"]))
+    return out
+
+
+def build_cooling_duct(pod: PodGeometry, layout: dict, wall: float) -> list[Part]:
+    """Three printable air-guide sections from the aft belly vent to compute.
+
+    Rectangular section and routed centreline are explicit fabrication inputs.
+    Flow/pressure and heatsink attachment need a bench thermal test.
+    """
+    cfg = layout.get("cooling_duct", {})
+    if not cfg.get("enabled", False):
+        return []
+    width, height = map(float, cfg["outer_size_mm"])
+    t = float(cfg["wall_mm"])
+    if min(width, height) <= 2 * t or t <= 0:
+        raise ValueError("cooling duct must have positive wall and internal section")
+    sections = cfg["sections"]
+
+    def section(point, inset=0):
+        x, y, z = point
+        hw, hh = width / 2 - inset, height / 2 - inset
+        return np.array([[x, y - hw, z - hh], [x, y + hw, z - hh],
+                         [x, y + hw, z + hh], [x, y - hw, z + hh]], float)
+
+    out = []
+    for i, stations in enumerate(sections):
+        outer = loft([section(p) for p in stations], ruled=True, kind="polygon")
+        inner_stations = [list(p) for p in stations]
+        # Open both ends; the slight extension prevents coincident cut faces.
+        inner_stations[0][0] -= 0.1
+        inner_stations[-1][0] += 0.1
+        inner = loft([section(p, t) for p in inner_stations], ruled=True, kind="polygon")
+        duct = outer.cut(inner)
+        inlet_last = cfg.get("inlet_end", "first") == "last"
+        if i == (len(sections) - 1 if inlet_last else 0):
+            x, y, z = stations[-1] if inlet_last else stations[0]
+            floor = pod.bottom_z(x) + wall
+            xa, xb = cfg.get("inlet_x_span_mm", (x, x + 25))
+            inlet = box(xa, xb, -width / 2, width / 2, floor, z + height / 2)
+            passage = box(xa + t, xb - t, -width / 2 + t, width / 2 - t,
+                          floor - 1, z + height / 2 - t)
+            duct = duct.fuse(inlet).cut(passage)
+        out.append(Part(f"cooling_duct_{i + 1}", _clean(duct), "structural", (0, 0, 1), "pod", "C",
+                        ["Bond duct joints and seal inlet to belly vent; supply fan must overcome duct pressure losses",
+                         f"Internal section {width - 2*t:g} x {height - 2*t:g} mm; verify cooling at static ground idle",
+                         "Outlet directs air to the side of the compute heatsink; final adapter follows actual heatsink geometry"]))
+    return out
+
+
+def build_launch_hook(pod: PodGeometry, cg_x_mm: float, wall: float, cfg: dict | None = None) -> Part:
+    """Optional bungee hook concept; its load path must be tied to the spar frame."""
+    z = pod.bottom_z(cg_x_mm)
+    flange = box(cg_x_mm - 24, cg_x_mm + 24, -15, 15, z - 4, z)
+    hook = box(cg_x_mm - 12, cg_x_mm + 12, -4, 4, z - 26, z - 3)
+    hook = hook.cut(cylinder([cg_x_mm - 3, -5, z - 16], [cg_x_mm - 3, 5, z - 16], 9))
+    hook = hook.cut(box(cg_x_mm - 13, cg_x_mm - 3, -5, 5, z - 20.5, z - 11.5))
+    shape = flange.fuse(hook)
+    for dx in (-18, 18):
+        shape = shape.cut(cylinder([cg_x_mm + dx, 0, z - 5], [cg_x_mm + dx, 0, z + 1], 4.3))
+    return Part("launch_hook_optional", _clean(shape), "structural", (0, 1, 0), "pod", "C",
+                ["OPTIONAL BUNGEE CONCEPT: not selected for the hand-launch baseline",
+                 "2 x M4 through bolts to a structural backing plate tied to spar box; do not load the thin pod shell",
+                 "Bungee force, hook retention and release trajectory require ground proof tests before use"])

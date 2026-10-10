@@ -99,7 +99,7 @@ propulsion:
     ct: 0.11                  # assumed static coefficients, NOT measured 13x8 data
     cp: 0.055
     loaded_rpm_fraction: 0.80 # RPM / (KV * terminal pack voltage), approximate
-    esc_rating_a: 40.0         # provisional BOM target, not a selected ESC
+    # ESC current rating comes from electronics.yaml, avoiding a second stale value.
     current_headroom: 0.20
     coefficient_source: https://m-selig.ae.illinois.edu/props/propDB.html
     coefficient_status: "UIUC coefficient convention; numerical CT/CP are engineering assumptions"

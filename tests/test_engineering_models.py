@@ -140,7 +140,8 @@ def test_lighter_motor_voltage_conflict_is_reported(design):
     assert a30 and all(not row["pack_compatible"] for row in a30)
     baseline_full = next(row for row in checks if "A40-10L" in row["candidate"] and row["voltage_state"] == "full")
     assert baseline_full["thrust_pass"]
-    assert not baseline_full["esc_pass"]
+    assert baseline_full["esc_rating_a"] == design.electronics.components["esc"]["current_rating_a"]
+    assert baseline_full["esc_pass"]  # Talon60 replaces the insufficient40A placeholder
     assert all(not row["continuous_thermal_validated"] for row in checks)
 
 

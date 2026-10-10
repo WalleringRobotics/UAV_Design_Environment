@@ -20,6 +20,68 @@ from functools import lru_cache
 import numpy as np
 
 
+def cage_mount_datums(pod, layout: dict, wall_mm: float, standoff_mm: float) -> dict:
+    """Shared cage/airframe damper axes, never independently rounded."""
+    cfg = layout.get("cage_mount", {})
+    half = float(cfg.get("base_half_width_mm", 46.0))
+    offset = half - float(cfg.get("hole_inset_mm", 8.0))
+    xc = float(layout["cage_lens_axis_x_mm"])
+    base_z = pod.bottom_z(xc) + wall_mm + standoff_mm + 20.0
+    gap = float(cfg.get("damper_gap_mm", 5.0))
+    return {"half_width_mm": half, "base_z_mm": base_z,
+            "ledge_top_z_mm": base_z - gap,
+            "hole_diameter_mm": float(cfg.get("hole_diameter_mm", 8.4)),
+            "hole_xy_mm": [(xc + sx * offset, sy * offset) for sx in (-1, 1) for sy in (-1, 1)]}
+
+
+def pod_half_width_at_z(pod, x_mm: float, z_mm: float, inset_mm: float = 0.0) -> float:
+    """Interior superellipse half width; zero outside the local section."""
+    s = pod.at(x_mm)
+    hw, hh = s["w"] / 2 - inset_mm, s["h"] / 2 - inset_mm
+    if min(hw, hh) <= 0:
+        return 0.0
+    q = abs(z_mm - s["z"]) / hh
+    return float(hw * max(0.0, 1 - q ** s["n"]) ** (1 / s["n"]))
+
+
+def battery_envelope_fits(pod, center_x_mm: float, center_z_mm: float,
+                          size_mm=(70.0, 108.0, 22.0), clearance_mm: float = 2.4) -> bool:
+    """Conservative sampled rectangular pack fit in the *analytic* pod interior.
+
+    This checks shell clearance only, not cage, tray, ducts or wiring. The CAD
+    build additionally needs installed-component interference checks.
+    """
+    length, width, height = map(float, size_mm)
+    if min(length, width, height) <= 0:
+        raise ValueError("battery dimensions must be positive")
+    xa, xb = center_x_mm - length / 2, center_x_mm + length / 2
+    if xa < pod.x_nose + clearance_mm or xb > pod.x_tail - clearance_mm:
+        return False
+    xs = sorted(set(np.linspace(xa, xb, 17).tolist() +
+                    [s["x"] for s in pod.sections if xa <= s["x"] <= xb]))
+    return all(pod_half_width_at_z(pod, x, z, clearance_mm) >= width / 2
+               for x in xs for z in (center_z_mm - height / 2, center_z_mm + height / 2))
+
+
+def hatch_magnet_datums(pod, podcfg: dict, hatch_index: int) -> list[tuple[float, float]]:
+    """Four common magnet axes on the two mating sides of a hatch."""
+    a, b = podcfg["hatches_x_mm"][hatch_index]
+    z = float(podcfg["hatch_z_above_mm"])
+    out = []
+    usable = []
+    for x in np.linspace(a + 12.0, b - 12.0, 41):
+        edge = min(pod_half_width_at_z(pod, xx, zz)
+                   for xx in (x - 6, x, x + 6) for zz in (z, z + 5.5))
+        if edge >= 20:
+            usable.append((float(x), edge))
+    if not usable or usable[-1][0] - usable[0][0] < 24:
+        raise ValueError("hatch ends are too shallow for retained magnet pockets")
+    for x, edge in (usable[0], usable[-1]):
+        for sy in (-1, 1):
+            out.append((float(x), sy * (edge - 6.0)))
+    return out
+
+
 @lru_cache(maxsize=256)
 def _blended_coords(root: str, tip: str, blend: float, n: int, te_thickness: float) -> np.ndarray:
     """Unit-chord section, upper surface TE->LE then lower LE->TE, no repeated point.

@@ -67,6 +67,9 @@ wing:
   wire_channel_mm: 7.0
   wire_channel_x_over_c: 0.52
   tube_clearance_mm: 0.25           # radial, for bonded sleeves / sliding joiner
+  alignment_dowel_hole_mm: 3.2      # 3 mm CF locating pins, 16 mm long
+  servo_cover_rim_mm: 5.0
+  servo_cover_thickness_mm: 1.5
 
 pod:
   nose_x_mm: -175                   # x measured aft of the wing root leading edge
@@ -93,31 +96,54 @@ pod:
 
 layout:                             # component placement in the pod (x aft of root LE, z up from chord plane)
   cage_lens_axis_x_mm: 125          # forward of the spar box; lens looks through the belly window
+  cage_mount:
+    base_half_width_mm: 46
+    hole_inset_mm: 8
+    hole_diameter_mm: 8.4
+    damper_gap_mm: 5                # verify compressed grommet stack on actual parts
+    ledge_thickness_mm: 4
   # Battery CG may sit in either bay (5S1P, cells along x: 70 x 108 x 22 mm).
   # Forward bay ahead of the cage; aft bay under the avionics tray behind the spar box.
   battery_bays_mm: [[-110, 40], [222, 290]]
+  # Explicit pack envelopes supersede the historical unrestricted CG ranges
+  # above. Only these intervals fit the inner shell; installed hardware still
+  # needs a physical interference check. The aft pack is rotated 90 degrees.
+  battery_placements:
+    - {name: forward, cg_range_mm: [-25, 35], center_z_mm: -40, size_mm: [70, 108, 22]}
+    - {name: aft, cg_range_mm: [230, 240], center_z_mm: -50, size_mm: [108, 70, 22]}
+  avionics_tray_height_above_floor_mm: 50
+  cooling_duct:
+    enabled: true
+    outer_size_mm: [14, 24]
+    wall_mm: 1.0
+    inlet_end: last                 # aft belly vent is the dedicated compute inlet
+    inlet_x_span_mm: [318, 342]
+    sections:
+      - [[275, 42, -5], [300, 40, -30]]
+      - [[300, 40, -30], [315, 20, -48]]
+      - [[315, 20, -48], [330, 0, -51]]
   compute_x_mm: 290
   avionics_x_mm: 300
-  esc_x_mm: 345
+  esc_x_mm: 335
   motor_x_mm: 420                   # motor CG behind the firewall
   airspeed_x_mm: -175
   # Bought-in items: [x, z] in the aircraft frame (y = 0 unless the builder
   # places them, e.g. servos sit in their wing pockets)
   positions:
-    flight_controller: [300, -38]
+    flight_controller: [300, -18]
     flight_gnss:       [235, 62]      # on the payload hatch, behind the antenna mast
     airspeed:          [-170, -8]
-    power_monitor:     [330, -40]
-    rc_receiver:       [310, -30]
-    datalink:          [285, -20]
+    power_monitor:     [330, -20]
+    rc_receiver:       [310, -10]
+    datalink:          [285, 0]
     servo_leads:       [260, -2]
-    reg_12v_compute:   [325, -38]
-    reg_servo:         [325, -32]
+    reg_12v_compute:   [325, -18]
+    reg_servo:         [325, -12]
     harness:           [180, -45]
     motor:             [421, 0]
-    esc:               [345, -35]
+    esc:               [335, 25]   # Talon60 envelope above compute; standoff/cooling mount to qualify
     propeller:         [455, 0]
-    compute:           [290, -25]
-    nvme:              [290, -25]
+    compute:           [290, -5]
+    nvme:              [290, -5]
     payload_harness:   [150, -40]
     hardware:          [200, -20]

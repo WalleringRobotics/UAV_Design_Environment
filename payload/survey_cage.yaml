@@ -77,4 +77,4 @@ compute:
     mass_g: 70                         # doc §11.10: ~50 g + heatsink
     power_w: 6.0
     envelope_mm: [75, 55, 25]
-    confirm: "Carrier choice (needs GbE + NVMe + 2x UART + PPS GPIO)"
+    confirm: "Carrier choice (needs GbE + NVMe + 2x UART + PPS GPIO); must accept budgeted 12 V input or change converter/rail. CM5 module itself does not take 12 V."

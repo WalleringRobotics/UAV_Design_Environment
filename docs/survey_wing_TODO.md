@@ -1,5 +1,12 @@
 # Survey wing — remaining work (hand-off plan for a coding agent)
 
+> Historical plan retained for traceability. The 10 October 2026 takeover
+> consolidated all UAV branches in `codex/artifact-delivery` / PR #4. Current
+> commands and artifacts are described in `README.md`; the critical assessment
+> is in `docs/critical_review.md`. The final validation record is appended by
+> the delivery session below. Do not treat inherited numeric results as current
+> measurements or repeat completed work merely because it appears in this plan.
+
 Branch `feature/survey-wing-fabrication` → draft PR #3, stacked on PR #2
 (`feature/flying-wing-platform`). Merge #2 first, then retarget #3 to `main`.
 

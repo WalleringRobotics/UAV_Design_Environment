@@ -16,7 +16,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
+import os
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -28,7 +32,7 @@ from .. import design as D
 from ..payload import SurveyPayload
 from ..structures import Tube
 from . import parts as P
-from .geometry import PodGeometry, WingGeometry, spar_layout
+from .geometry import PodGeometry, WingGeometry, battery_envelope_fits, spar_layout
 from .massprops import PrintedMass, printed_mass, settings_from_profile
 from .printer import Fit, PrinterProfile, check_fit, orient_to_axis
 
@@ -66,6 +70,9 @@ class Balance:
     target_static_margin: float
     auw_g: float
     contingency_g: float
+    battery_z_mm: float = -60.0
+    battery_bay: str = "legacy"
+    battery_target_x_mm: float = 0.0
 
     @property
     def battery_in_range(self) -> bool:
@@ -75,11 +82,16 @@ class Balance:
     def summary(self) -> dict:
         return {
             "auw_g": float(self.auw_g),
+            "contingency_g": float(self.contingency_g),
             "cg_x_mm": float(self.cg_x_mm),
             "x_np_mm": float(self.x_np_mm),
             "static_margin": float(self.static_margin),
             "target_static_margin": float(self.target_static_margin),
             "battery_x_mm": float(self.battery_x_mm),
+            "battery_z_mm": float(self.battery_z_mm),
+            "battery_bay": self.battery_bay,
+            "battery_target_x_mm": float(self.battery_target_x_mm),
+            "target_cg_reachable": math.isclose(self.battery_x_mm, self.battery_target_x_mm, abs_tol=1e-6),
             "battery_in_range": bool(self.battery_in_range),
         }
 
@@ -92,6 +104,7 @@ class BuildResult:
     balance: Balance
     printed_mass_g: dict = field(default_factory=dict)
     exported: dict = field(default_factory=dict)
+    payload_config: str = "orin"
 
     @property
     def all_fit(self) -> bool:
@@ -148,12 +161,18 @@ def build_parts(d: D.Design, fab: dict, config: str = "orin", progress=None):
     say("fin")
     right.append(P.build_fin(w, g["fin_area_mm2"], g["fin_height_mm"]))
     say("pod")
-    centre = P.build_pod(w, spars, pod, fab["pod"], fab["layout"], fit)
+    centre = P.build_pod(w, spars, pod, fab["pod"], fab["layout"], fit,
+                         cage_standoff_mm=payload.window_standoff_mm)
     centre.extend(P.build_skid(pod, fab["pod"], fab["layout"]))
     say("cage + tray")
     centre.append(P.build_cage(pod, payload.cage_members, fab["layout"], payload.window_standoff_mm,
                                fab["pod"]["wall_mm"]))
     centre.append(P.build_tray(pod, fab["layout"], fab["pod"]["wall_mm"], float(spars.joiner.p0[0]) + 16))
+    centre.extend(P.build_battery_trays(pod, fab["layout"], fab["pod"]["wall_mm"]))
+    # Common airframe includes the duct for either compute configuration.
+    centre.extend(P.build_cooling_duct(pod, fab["layout"], fab["pod"]["wall_mm"]))
+    if d.design["requirements"].get("launch", {}).get("selected", "hand") == "bungee":
+        centre.append(P.build_launch_hook(pod, d.x_cg_target_mm, fab["pod"]["wall_mm"]))
 
     all_parts = right + [p.mirrored() for p in right] + centre
     built = []
@@ -170,7 +189,8 @@ def build_parts(d: D.Design, fab: dict, config: str = "orin", progress=None):
 
 def mass_items(d: D.Design, fab: dict, built: list, w: WingGeometry, spars, pod: PodGeometry,
                config: str) -> list[MassItem]:
-    items = [MassItem(bp.name, bp.mass.mass_g, float(bp.mass.cg_mm[0]), float(bp.mass.cg_mm[2]), "printed")
+    items = [MassItem(bp.name, bp.mass.mass_g, float(bp.mass.cg_mm[0]), float(bp.mass.cg_mm[2]),
+                      "payload" if bp.part.group == "payload" else "printed")
              for bp in built]
     lay = fab["layout"]
     pos = lay["positions"]
@@ -226,15 +246,25 @@ def solve_balance(d: D.Design, fab: dict, items: list[MassItem]) -> Balance:
     x_np, mac = d.stability.x_np_mm, d.stability.mac_mm
     x_cg = x_np - target_sm * mac
     x_batt = (x_cg * (m + pack_g) - mom) / pack_g
-    bays = [tuple(b) for b in fab["layout"]["battery_bays_mm"]]
-    candidates = [float(np.clip(x_batt, lo, hi)) for lo, hi in bays]
-    x_b = min(candidates, key=lambda c: abs(c - x_batt))
-    lo, hi = next(b for b, c in zip(bays, candidates) if c == x_b)
+    bays = fab["layout"]["battery_placements"]
+    pod = PodGeometry.from_dict(fab["pod"])
+    candidates = []
+    for bay in bays:
+        lo, hi = bay["cg_range_mm"]
+        x = float(np.clip(x_batt, lo, hi))
+        if battery_envelope_fits(pod, x, bay["center_z_mm"], bay["size_mm"],
+                                 fab["pod"]["wall_mm"] + 1.0):
+            candidates.append((x, bay))
+    if not candidates:
+        raise ValueError("No configured battery placement fits the analytic pod envelope")
+    x_b, bay = min(candidates, key=lambda c: abs(c[0] - x_batt))
+    lo, hi = bay["cg_range_mm"]
+    z_b = bay["center_z_mm"]
     cg = (mom + pack_g * x_b) / (m + pack_g)
     contingency = d.design["contingency_fraction"] * (m - sum(i.mass_g for i in items if i.group == "payload"))
-    all_items = items + [MassItem("battery", pack_g, x_b, -60.0, "battery")]
+    all_items = items + [MassItem("battery", pack_g, x_b, z_b, "battery")]
     return Balance(all_items, x_b, (lo, hi), cg, x_np, mac, (x_np - cg) / mac, target_sm,
-                   m + pack_g + contingency, contingency)
+                   m + pack_g + contingency, contingency, z_b, bay["name"], x_batt)
 
 
 # --------------------------------------------------------------------------- #
@@ -260,7 +290,68 @@ def print_oriented(bp: BuiltPart, printer: PrinterProfile) -> cq.Shape:
     return s.translate(cq.Vector(cx - (bb.xmin + bb.xmax) / 2, cy - (bb.ymin + bb.ymax) / 2, -bb.zmin))
 
 
+def validate_build(result: BuildResult) -> None:
+    """Refuse incomplete, invalid or unprintable geometry before publishing files."""
+    names = [bp.name for bp in result.parts]
+    if not names or len(names) != len(set(names)):
+        raise ValueError("Build must contain uniquely named parts")
+    bad = [bp.name for bp in result.parts
+           if not bp.fit.fits or not bp.part.solid.isValid()
+           or len(bp.part.solid.Solids()) != 1 or bp.mass.mass_g <= 0]
+    if bad:
+        raise ValueError(f"Invalid, disconnected or oversized printed parts: {bad}")
+    if not result.design.selected.converged:
+        raise ValueError("Sizing did not converge")
+    verify_design_snapshot(result.design)
+
+
+def verify_design_snapshot(design):
+    if getattr(design, "input_hashes", None):
+        D.verify_snapshot({"inputs": design.input_hashes, "sources": design.source_hashes},
+                          platform=design.platform_dir.name, root=design.platform_dir.parent.parent)
+
+
 def export(result: BuildResult, out_dir: str | Path, stl_tolerance: float = 0.05) -> dict:
+    """Publish a complete generated directory; failed exports leave the old set intact."""
+    validate_build(result)
+    out = Path(out_dir).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists() and any(out.iterdir()) and not (out / "manifest.json").is_file():
+        raise ValueError(f"Refusing to replace an unrecognized output directory: {out}")
+    stage = Path(tempfile.mkdtemp(prefix=f".{out.name}-", dir=out.parent))
+    backup = out.with_name(f".{out.name}-previous")
+    try:
+        files = _export_files(result, stage, stl_tolerance)
+        if backup.exists():
+            raise ValueError(f"Previous export backup exists; inspect it first: {backup}")
+        if out.exists():
+            out.rename(backup)
+        try:
+            stage.rename(out)
+        except BaseException:
+            if backup.exists():
+                backup.rename(out)
+            raise
+        if backup.exists():
+            shutil.rmtree(backup)
+        return files
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+
+
+def result_signature(result: BuildResult) -> str:
+    """Identity of the exact design, settings, physical balance and generated part set."""
+    data = {"design": result.design.design, "mission": result.design.mission,
+            "input_hashes": result.design.input_hashes, "source_hashes": result.design.source_hashes,
+            "payload_config": result.payload_config,
+            "calibration": result.design.calibration, "electronics": result.design.electronics.spec,
+            "fabrication": result.fab, "geometry": D.airframe_geometry(result.design),
+            "balance": result.balance.summary(), "parts": result.part_table()}
+    return hashlib.sha256(json.dumps(data, sort_keys=True, default=_jsonable).encode()).hexdigest()
+
+
+def _export_files(result: BuildResult, out_dir: str | Path, stl_tolerance: float = 0.05) -> dict:
     out = Path(out_dir)
     (out / "stl").mkdir(parents=True, exist_ok=True)
     (out / "step").mkdir(parents=True, exist_ok=True)
@@ -277,10 +368,18 @@ def export(result: BuildResult, out_dir: str | Path, stl_tolerance: float = 0.05
     files["_assembly"] = "assembly.step"
 
     manifest = {
+        "schema_version": "1.0",
+        "result_signature": result_signature(result),
+        "payload_config": result.payload_config,
+        "maturity": "engineering review; physical fit, material strength and flight performance unvalidated",
+        "units": {"geometry": "mm", "mass": "g"},
+        "calibration": result.design.calibration,
+        "sizing_auw_g": result.design.evaluations[result.payload_config].auw_kg * 1000,
+        "sizing_balance_error_fraction": abs(result.balance.auw_g / (result.design.evaluations[result.payload_config].auw_kg * 1000) - 1),
         "printer": result.fab["printer"],
         "design": {k: (round(v, 3) if isinstance(v, float) else v) for k, v in D.airframe_geometry(result.design).items()
                    if not isinstance(v, dict)},
-        "balance": {k: (round(v, 2) if isinstance(v, float) else v) for k, v in result.balance.summary().items()},
+        "balance": result.balance.summary(),
         "printed_mass_g": {k: round(v, 1) for k, v in result.printed_mass_g.items()},
         "parts": [
             {**row, "files": files[row["part"]], "notes": bp.part.notes,
@@ -288,6 +387,8 @@ def export(result: BuildResult, out_dir: str | Path, stl_tolerance: float = 0.05
             for row, bp in zip(result.part_table(), result.parts)
         ],
     }
+    manifest["file_sha256"] = {str(p.relative_to(out)): hashlib.sha256(p.read_bytes()).hexdigest()
+                               for p in sorted(out.rglob("*")) if p.is_file()}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, default=_jsonable))
     (out / "PRINT_LIST.md").write_text(print_list_markdown(result))
     result.exported = files
@@ -371,32 +472,61 @@ def write_calibration(cal: dict, platform_dir: Path) -> Path:
     path = platform_dir / "calibration.yaml"
     header = ("# GENERATED by scripts/build_parts.py — CAD-measured corrections fed back into\n"
               "# the sizing loop (uavdesign.design.run reads this file). Do not edit by hand.\n")
-    path.write_text(header + yaml.safe_dump(cal, sort_keys=False))
+    temporary = path.with_suffix(".yaml.tmp")
+    temporary.write_text(header + yaml.safe_dump(cal, sort_keys=False))
+    os.replace(temporary, path)
     return path
 
 
-def converge(platform: str = "survey_wing", config: str = "orin", max_iter: int = 4, tol: float = 0.01,
+class ConvergenceError(RuntimeError):
+    def __init__(self, history):
+        self.history = history
+        super().__init__(f"CAD calibration did not converge after {len(history)} iterations; calibration unchanged")
+
+
+def converge(platform: str = "survey_wing", config: str = "orin", max_iter: int = 8, tol: float = 0.01,
              progress=None) -> tuple[BuildResult, list]:
-    """Iterate design <-> CAD until the sizing AUW and the CAD factors stop moving."""
+    """Require stable wing/pod/cage mass and <tol sizing/balance mismatch.
+
+    Save the calibration actually used by the successful build, with its measured
+    evidence. Never save an unbuilt next iterate or change calibration on failure.
+    """
+    if max_iter < 1 or not 0 < tol < 1:
+        raise ValueError("max_iter must be positive and tol must be in (0, 1)")
     history = []
     cal = None
     result = None
     for it in range(1, max_iter + 1):
         d = D.run(platform, calibration=cal)
+        if config != d.design["payload"]["size_for"]:
+            raise ValueError("Calibrate using payload.size_for; use --no-converge for other payload balances")
         if progress:
             progress(f"iteration {it}: sizing AUW {d.selected.auw_kg:.3f} kg, span {d.selected.span_m:.3f} m")
         result = build(platform, config, design=d, progress=progress)
         new = calibration_from(result)
         history.append({"iteration": it, "auw_sizing_kg": d.selected.auw_kg, "span_m": d.selected.span_m,
                         **{k: v for k, v in new.items() if k != "measured"}, **new["measured"]})
-        old = cal or {"wing_mass_factor": 1.0, "pod_mass_factor": 1.0}
-        dw = abs(new["wing_mass_factor"] - old.get("wing_mass_factor", 1.0)) / new["wing_mass_factor"]
-        dp = abs(new["pod_mass_factor"] - old.get("pod_mass_factor", 1.0)) / new["pod_mass_factor"]
+        old = dict(d.calibration)
+        old.setdefault("wing_mass_factor", 1.0)
+        old.setdefault("pod_mass_factor", 1.0)
+        old.setdefault("cage_structure_g", d.payloads[config].cage_structure_mass_g)
+        changes = {k: abs(new[k] - old[k]) / max(abs(new[k]), 1e-9)
+                   for k in ("wing_mass_factor", "pod_mass_factor", "cage_structure_g")}
+        mass_error = abs(result.balance.auw_g / (d.selected.auw_kg * 1000) - 1)
+        history[-1].update(factor_changes=changes, mass_error_fraction=mass_error)
+        if max(changes.values()) < tol and mass_error < tol:
+            validate_build(result)
+            saved = {**old, "measured": new["measured"]}
+            saved["convergence"] = {"tolerance": tol, "mass_error_fraction": mass_error,
+                                    "factor_changes": changes, "iterations": it}
+            result.design.calibration = saved
+            write_calibration(saved, d.platform_dir)
+            if getattr(d, "input_hashes", None):
+                key = str((d.platform_dir / "calibration.yaml").relative_to(d.platform_dir.parent.parent))
+                d.input_hashes[key] = hashlib.sha256((d.platform_dir / "calibration.yaml").read_bytes()).hexdigest()
+            return result, history
         cal = new
-        if cal is not None and it > 1 and dw < tol and dp < tol:
-            break
-    write_calibration(cal, result.design.platform_dir)
-    return result, history
+    raise ConvergenceError(history)
 
 
 # --------------------------------------------------------------------------- #
@@ -406,6 +536,7 @@ def converge(platform: str = "survey_wing", config: str = "orin", max_iter: int 
 def build(platform: str = "survey_wing", config: str = "orin", export_dir: str | Path | None = None,
           design: D.Design | None = None, progress=None) -> BuildResult:
     d = design or D.run(platform)
+    verify_design_snapshot(d)
     fab = load_fab(d)
     built, w, spars, pod = build_parts(d, fab, config, progress)
     items = mass_items(d, fab, built, w, spars, pod, config)
@@ -413,7 +544,8 @@ def build(platform: str = "survey_wing", config: str = "orin", export_dir: str |
     groups = {}
     for bp in built:
         groups[bp.part.group] = groups.get(bp.part.group, 0.0) + bp.mass.mass_g
-    res = BuildResult(d, fab, built, bal, groups)
+    res = BuildResult(d, fab, built, bal, groups, payload_config=config)
+    verify_design_snapshot(d)
     if export_dir:
         export(res, export_dir)
     return res
