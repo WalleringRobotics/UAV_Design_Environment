@@ -13,6 +13,11 @@ Fixed-wing specific:
 
 * :mod:`uavdesign.aero` — wing geometry/MAC/static margin, drag polar,
   constraint analysis
+* :mod:`uavdesign.survey`, :mod:`uavdesign.payload` — imaging and sensor budgets
+* :mod:`uavdesign.sizing`, :mod:`uavdesign.design` — coupled design closure
+* :mod:`uavdesign.electronics`, :mod:`uavdesign.structures` — component checks
+* :mod:`uavdesign.fab` — optional CAD, print fit and calibration (lazy import)
+* :mod:`uavdesign.integration`, :mod:`uavdesign.artifacts` — review exports
 
 All quantities are SI unless the variable name says otherwise (wing geometry
 is in mm, matching how small planforms are drawn).

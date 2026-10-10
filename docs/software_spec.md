@@ -153,7 +153,9 @@ calibration. Finally reconstruct a real moving survey with independent controls
 and checkpoints. A printed aircraft and a passing Python test suite cannot supply
 those physical datasets.
 
-The feature-request drafts under `integration/feature_requests/` extend the
-inspected upstream work. They do not replace existing calibration issues, PR #24
+The published feature requests [#27: camera/event adapters](https://github.com/WalleringRobotics/mapping_functionality/issues/27)
+and [#28: Plane handoff](https://github.com/WalleringRobotics/mapping_functionality/issues/28)
+extend the inspected upstream work; their bodies are retained under
+`integration/feature_requests/`. They do not replace existing calibration issues, PR #24
 processing work, PR #25 field planning, or PR #26 QGC integration. No new survey UI,
 flight-controller implementation or photogrammetry engine is proposed.

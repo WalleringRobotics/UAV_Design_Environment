@@ -172,3 +172,51 @@ def test_basler_candidate_dimensions_match_corrected_part(design):
     assert camera["pixels_along"] == 3032
     assert camera["max_fps"] == 7
     assert "a2a5320-7gcpro" in camera["source"]
+
+
+def test_balance_trade_respects_physical_pack_intervals(design, monkeypatch):
+    # A legacy balance could put the pack at x=40. The new fit-checked forward
+    # bay stops at x=35; a trade must never continue using the old x limits.
+    monkeypatch.setattr(D.stab, "solve_washout", lambda *args, **kwargs: (0, design.stability))
+    balance = {"auw_g": design.selected.auw_kg * 1000,
+               "contingency_g": design.selected.masses_g["contingency"],
+               "cg_x_mm": design.stability.x_np_mm - .06 * design.stability.mac_mm,
+               "battery_x_mm": 40}
+    rows = D.balance_alternatives(design, balance)
+    fab = yaml.safe_load((PLAT / "fabrication.yaml").read_text())
+    placements = {p["name"]: p for p in fab["layout"]["battery_placements"]}
+    for row in rows:
+        placement = placements[row["battery_bay"]]
+        low, high = placement["cg_range_mm"]
+        assert low <= row["battery_x_mm"] <= high
+        assert row["battery_shell_envelope_pass"]
+    assert rows[0]["battery_x_mm"] <= 35
+
+
+def test_snapshot_detects_additions_changes_and_deletions(tmp_path):
+    base = tmp_path / "platforms/survey_wing"
+    base.mkdir(parents=True)
+    config = base / "design_point.yaml"
+    config.write_text("value: 1\n")
+    snapshot = D.snapshot_inputs(root=tmp_path)
+    D.verify_snapshot(snapshot, root=tmp_path)
+    config.write_text("value: 2\n")
+    with pytest.raises(RuntimeError, match="design_point.yaml"):
+        D.verify_snapshot(snapshot, root=tmp_path)
+    D.verify_snapshot(snapshot, root=tmp_path,
+                      allow_changed=("platforms/survey_wing/design_point.yaml",))
+    config.unlink()
+    with pytest.raises(RuntimeError, match="design_point.yaml"):
+        D.verify_snapshot(snapshot, root=tmp_path)
+    snapshot = D.snapshot_inputs(root=tmp_path)
+    (base / "new.yaml").write_text("new: true\n")
+    with pytest.raises(RuntimeError, match="new.yaml"):
+        D.verify_snapshot(snapshot, root=tmp_path)
+
+
+def test_survey_wind_uses_groundspeed_for_imaging(design):
+    report = D.survey_wind_report(design)
+    assert report["worst_case_tailwind_groundspeed_m_s"] == pytest.approx(
+        design.selected.cruise_speed_m_s + design.mission["mission"]["max_wind_speed_ms"])
+    assert not report["tailwind_imaging_compatible"]
+    assert report["headwind_progress_possible"]

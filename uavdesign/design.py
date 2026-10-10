@@ -13,7 +13,8 @@ reads the resulting planform via :func:`airframe_geometry`.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+import hashlib
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import yaml
@@ -46,6 +47,8 @@ class Design:
     x_cg_target_mm: float
     evaluations: dict
     calibration: dict
+    input_hashes: dict = field(default_factory=dict)
+    source_hashes: dict = field(default_factory=dict)
 
     @property
     def wing(self):
@@ -58,6 +61,33 @@ def load(platform: str = "survey_wing", root: Path | None = None) -> tuple[Path,
     design = yaml.safe_load((pdir / "design_point.yaml").read_text())
     mission = yaml.safe_load((root / "mission" / "mission_params.yaml").read_text())
     return pdir, design, mission
+
+
+def snapshot_inputs(platform: str = "survey_wing", root: Path | None = None) -> dict:
+    """Hash design inputs and implementation before a potentially long build.
+
+    Separate maps let a successful convergence refresh only its generated
+    calibration record. All other input/source changes invalidate the build.
+    """
+    root = Path(root or REPO_ROOT)
+    inputs = [p for folder in (root / "platforms" / platform, root / "mission", root / "payload")
+              for pattern in ("*.yaml", "*.yml") for p in folder.glob(pattern)]
+    sources = list((root / "uavdesign").rglob("*.py"))
+    return {group: {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in sorted(paths)}
+            for group, paths in (("inputs", inputs), ("sources", sources))}
+
+
+def verify_snapshot(snapshot: dict, platform: str = "survey_wing", root: Path | None = None,
+                    allow_changed=()) -> None:
+    """Raise if any input/source was added, removed or changed since capture."""
+    current = snapshot_inputs(platform, root)
+    allowed = set(allow_changed)
+    changed = sorted({path for group in ("inputs", "sources")
+                      for path in snapshot[group].keys() | current[group].keys()
+                      if path not in allowed and snapshot[group].get(path) != current[group].get(path)})
+    if changed:
+        raise RuntimeError("Design inputs or implementation changed during build: " + ", ".join(changed))
 
 
 def load_calibration(platform_dir: Path) -> dict:
@@ -91,6 +121,7 @@ def run(platform: str = "survey_wing", root: Path | None = None, solve_stability
         calibration: dict | None = None) -> Design:
     """Run the design chain. `calibration` defaults to platforms/<p>/calibration.yaml ({} = analytic only)."""
     root = root or REPO_ROOT
+    snapshot = snapshot_inputs(platform, root)
     pdir, design, mission = load(platform, root)
     cal = load_calibration(pdir) if calibration is None else calibration
     elec = Electronics.from_yaml(pdir / "electronics.yaml")
@@ -155,8 +186,10 @@ def run(platform: str = "survey_wing", root: Path | None = None, solve_stability
         evals[c] = evaluate(selected, ic, c, p.mass_kg, ic.payload_power_w,
                             battery_energy_wh=pack.energy_wh, battery_mass_g=pack.mass_g)
 
+    verify_snapshot(snapshot, platform, root)
     return Design(pdir, design, mission, elec, payloads, rho, v_survey, free, selected,
-                  washout, st, x_cg, evals, cal)
+                  washout, st, x_cg, evals, cal,
+                  input_hashes=snapshot["inputs"], source_hashes=snapshot["sources"])
 
 
 def airframe_geometry(d: Design) -> dict:
@@ -300,9 +333,10 @@ def balance_alternatives(d: Design, balance: dict) -> list[dict]:
     Geometry and holes must be regenerated for any adopted cage shift. The
     unchanged component masses make this a moment/trim trade, not a CAD release.
     """
-    from .fab.geometry import WingGeometry, spar_layout
+    from .fab.geometry import PodGeometry, WingGeometry, battery_envelope_fits, spar_layout
 
     fab = yaml.safe_load((d.platform_dir / "fabrication.yaml").read_text())
+    pod = PodGeometry.from_dict(fab["pod"])
     trade = d.design["balance_trades"]
     pl = d.design["planform"]
     wing = WingGeometry.from_airframe(airframe_geometry(d))
@@ -324,9 +358,16 @@ def balance_alternatives(d: Design, balance: dict) -> list[dict]:
         target_cg = stability.x_np_mm - target * stability.mac_mm
         shifted_cg = balance["cg_x_mm"] + cage_mass * shift / real_mass
         battery_required = balance["battery_x_mm"] + (target_cg - shifted_cg) * real_mass / pack_mass
-        positions = [min(max(battery_required, low), high)
-                     for low, high in fab["layout"]["battery_bays_mm"]]
-        battery_x = min(positions, key=lambda x: abs(x - battery_required))
+        positions = []
+        for placement in fab["layout"]["battery_placements"]:
+            low, high = placement["cg_range_mm"]
+            x = min(max(battery_required, low), high)
+            if battery_envelope_fits(pod, x, placement["center_z_mm"], placement["size_mm"],
+                                     clearance_mm=fab["pod"]["wall_mm"] + 1):
+                positions.append((x, placement))
+        if not positions:
+            raise ValueError("No candidate battery placement fits the pod envelope")
+        battery_x, placement = min(positions, key=lambda value: abs(value[0] - battery_required))
         actual_cg = shifted_cg + pack_mass * (battery_x - balance["battery_x_mm"]) / real_mass
         clearance = lug_front - (cage_x + shift + trade["cage_half_length_mm"])
         rows.append({"alternative": name, "cage_lens_axis_x_mm": cage_x + shift,
@@ -334,7 +375,31 @@ def balance_alternatives(d: Design, balance: dict) -> list[dict]:
                      "cage_clearance_pass": clearance >= trade["min_cage_lug_clearance_mm"],
                      "target_static_margin": target, "washout_deg": twist,
                      "battery_required_x_mm": battery_required, "battery_x_mm": battery_x,
+                     "battery_bay": placement["name"],
+                     "battery_center_z_mm": placement["center_z_mm"],
+                     "battery_shell_envelope_pass": True,
                      "battery_target_reachable": math.isclose(battery_x, battery_required, abs_tol=1e-6),
                      "cg_x_mm": actual_cg, "static_margin": (stability.x_np_mm - actual_cg) / stability.mac_mm,
                      "mechanical_rebuild_required": True})
     return rows
+
+
+def survey_wind_report(d: Design) -> dict:
+    """Expose the airspeed/groundspeed distinction at the mission wind limit.
+
+    The conservative along-track tailwind case bounds image blur/trigger rate.
+    Actual line direction and wind must be checked by the mission planner.
+    """
+    wind = float(d.mission["mission"]["max_wind_speed_ms"])
+    if not math.isfinite(wind) or wind < 0:
+        raise ValueError("mission.max_wind_speed_ms must be finite and non-negative")
+    airspeed = d.selected.cruise_speed_m_s
+    return {"cruise_airspeed_m_s": airspeed,
+            "imaging_groundspeed_limit_m_s": d.survey_speed_limit_m_s,
+            "mission_max_wind_m_s": wind,
+            "worst_case_tailwind_groundspeed_m_s": airspeed + wind,
+            "headwind_groundspeed_m_s": airspeed - wind,
+            "maximum_imaging_tailwind_m_s": d.survey_speed_limit_m_s - airspeed,
+            "tailwind_imaging_compatible": airspeed + wind <= d.survey_speed_limit_m_s,
+            "headwind_progress_possible": airspeed > wind,
+            "status": "mission line direction and ground speed require wind-aware planning"}

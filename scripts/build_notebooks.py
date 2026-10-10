@@ -18,11 +18,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from nbdefs import multirotor  # noqa: E402
+from nbdefs import multirotor, survey_wing  # noqa: E402
 from nbdefs._nb import notebook  # noqa: E402
 
 PLATFORMS = {
     "multirotor": multirotor.NOTEBOOKS,
+    "survey_wing": survey_wing.NOTEBOOKS,
 }
 
 

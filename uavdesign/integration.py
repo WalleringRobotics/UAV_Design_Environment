@@ -12,15 +12,24 @@ import copy
 import hashlib
 import json
 import math
+from functools import lru_cache
 from pathlib import Path
 import re
 import shutil
 import tempfile
 
 import yaml
+from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "wallering.uav-mapping-handoff/v1"
+
+
+@lru_cache(maxsize=1)
+def _schema_validator():
+    schema = json.loads((ROOT / "integration/handoff.schema.json").read_text())
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema)
 
 
 def _number(value, name, *, minimum=0.0, strict=True):
@@ -61,6 +70,11 @@ def resource_budget(camera, capture, duration_s):
         _number(camera[key], key)
     for key in ("bytes_per_pixel", "link_bits_per_s"):
         _number(capture[key], key)
+    formats = {"Bayer8_candidate": 1, "Bayer16_candidate": 2, "RGB8_candidate": 3}
+    pixel_format = capture.get("pixel_format")
+    if pixel_format is not None:
+        if pixel_format not in formats or capture["bytes_per_pixel"] != formats[pixel_format]:
+            raise ValueError("pixel_format and bytes_per_pixel must describe the same explicit candidate mode")
     requested_fps = _number(capture["requested_fps"], "requested_fps")
     if requested_fps > camera["max_fps"]:
         raise ValueError("requested_fps exceeds the candidate camera's maximum rate")
@@ -123,8 +137,13 @@ def validate_handoff(data):
     """Validate identity, units and re-derived resource/geometry results.
 
     Returns engineering readiness without permitting a design export to claim
-    survey qualification. It is deliberately independent of JSON Schema tooling.
+    survey qualification. JSON Schema enforces nested fields and declared constants;
+    numerical re-derivation additionally catches stale or tampered budgets.
     """
+    errors = sorted(_schema_validator().iter_errors(data), key=lambda error: str(list(error.path)))
+    if errors:
+        error = errors[0]
+        raise ValueError(f"Handoff schema at {'.'.join(map(str, error.path)) or '<root>'}: {error.message}")
     required = {"schema", "schema_version", "status", "platform", "consumer", "source_files",
                 "hardware", "mission", "capture", "navigation", "geometry", "resources",
                 "compatibility", "survey_ready"}

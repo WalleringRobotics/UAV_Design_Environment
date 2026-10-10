@@ -30,6 +30,7 @@ def test_full_depth_camera_data_exceeds_gige_budget():
     data = build_handoff()
     capture = copy.deepcopy(data["capture"])
     capture["bytes_per_pixel"] = 2
+    capture["pixel_format"] = "Bayer16_candidate"
     budget = resource_budget(data["hardware"]["camera"]["geometry"], capture, 3000)
     assert not budget["link_budget_pass"]
     assert budget["raw_bytes_per_s"] > 125_000_000
@@ -68,11 +69,39 @@ def test_reject_invalid_acquisition_rate(value):
 def test_reject_stale_derived_budget_or_false_qualification():
     data = build_handoff()
     data["capture"]["bytes_per_pixel"] = 2
+    data["capture"]["pixel_format"] = "Bayer16_candidate"
     with pytest.raises(ValueError, match="resources differ"):
         validate_handoff(data)
     data = build_handoff()
     data["survey_ready"] = True
-    with pytest.raises(ValueError, match="cannot claim"):
+    with pytest.raises(ValueError, match="survey_ready"):
+        validate_handoff(data)
+
+
+@pytest.mark.parametrize("path,value", [
+    (("hardware", "camera", "calibration_state"), "measured"),
+    (("navigation", "flight_gnss_independent"), False),
+    (("mission", "operator_review"), "approved"),
+    (("compatibility", "survey_plan_supported_on_inspected_branch"), True),
+])
+def test_nested_false_qualification_is_rejected(path, value):
+    data = build_handoff()
+    target = data
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    with pytest.raises(ValueError, match="Handoff schema"):
+        validate_handoff(data)
+
+
+def test_missing_review_identity_and_pixel_mode_mismatch_are_rejected():
+    data = build_handoff()
+    del data["consumer"]["reviewed_on"]
+    with pytest.raises(ValueError, match="reviewed_on"):
+        validate_handoff(data)
+    data = build_handoff()
+    data["capture"]["bytes_per_pixel"] = 0.1
+    with pytest.raises(ValueError, match="pixel_format"):
         validate_handoff(data)
 
 
