@@ -41,6 +41,25 @@ stale CAD and replace prior generated directories only after completing the new
 set. `--no-converge` builds from the saved calibration for repeat/CI checks;
 `--config cm5 --no-converge` evaluates the lighter load on the same airframe.
 
+## Plan the printer beds
+
+The local print project arranges the exported parts for the Prusa CORE One+ and
+produces an HTML review, a 3MF and footprint preview for every bed, and a ZIP.
+The initial plan contains 42 parts on 36 beds. These are arranged models;
+print times and filament consumption become available after configured slicing.
+
+```bash
+.venv/bin/python -m pip install -c requirements-lock.txt -e '.[printer]'
+.venv/bin/python -m uavdesign.printing plan
+.venv/bin/python -m uavdesign.printing configure-mcp
+```
+
+Open the returned output directory's `queue.html`. Reload this trusted repository
+in Codex to enable the `uav_print` planning tools. See the [printer linkage guide](docs/printing.md)
+for local printer authentication, the seven required PrusaSlicer profiles, and
+the review-to-slicing workflow. Physical printing requires your final check;
+this integration exposes no upload or print-start command.
+
 ## Iteration points
 
 | Change | Input |

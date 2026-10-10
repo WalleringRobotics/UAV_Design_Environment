@@ -41,3 +41,6 @@ outputs/validation/
 # Conda
 .conda/
 outputs/parts/
+outputs/print_projects/
+.local/printing/
+.codex/config.toml

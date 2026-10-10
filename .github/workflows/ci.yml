@@ -18,8 +18,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install model and notebook dependencies
-        run: pip install -c requirements-lock.txt -e ".[test]"
+      - name: Install model, notebook and printer MCP dependencies
+        run: pip install -c requirements-lock.txt -e ".[test,printer]"
       - name: Notebooks are in sync with scripts/nbdefs
         run: |
           python scripts/build_notebooks.py
@@ -48,6 +48,10 @@ jobs:
         env:
           MPLBACKEND: Agg
         run: pytest -q -m cad
+      - name: Export and validate print-bed review project
+        run: |
+          python -m uavdesign.printing plan
+          pytest -q tests/test_print_planner.py tests/test_printer_adapters.py
       - name: Notebook execution tests (after manifest generation)
         env:
           MPLBACKEND: Agg
@@ -60,5 +64,6 @@ jobs:
           path: |
             outputs/review/
             outputs/review.zip
+            outputs/print_projects/
           if-no-files-found: error
           retention-days: 14
