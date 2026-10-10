@@ -1,0 +1,28 @@
+schema_version: '1.0'
+name: survey_wing_core_one
+parts_dir: outputs/parts
+output_dir: outputs/print_projects/survey_wing_core_one
+printer:
+  name: Prusa CORE One+
+  model: COREONE
+  bed_mm: [250, 220, 270]
+  nozzle_diameter_mm: 0.4
+  hardened_nozzle_installed: null  # confirm before ASA-CF
+layout:
+  bed_margin_mm: 5
+  process_clearance_mm: 8  # reserved per side for brim/support; verify in sliced preview
+  part_spacing_mm: 5      # additional space between reserved envelopes
+  single_part_above_height_mm: null  # batch tall compatible parts with layer-by-layer printing
+slicer:
+  executable: prusa-slicer
+  presets:
+    wing_skin: .local/printing/presets/wing_skin.ini
+    elevon: .local/printing/presets/elevon.ini
+    fin: .local/printing/presets/fin.ini
+    pod_shell: .local/printing/presets/pod_shell.ini
+    hatch: .local/printing/presets/hatch.ini
+    structural: .local/printing/presets/structural.ini
+    skid: .local/printing/presets/skid.ini
+workflow:
+  start_print_requires_user_confirmation: true
+  printables_required: false

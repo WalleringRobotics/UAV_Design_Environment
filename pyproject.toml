@@ -23,6 +23,7 @@ dependencies = [
 cad = ["cadquery>=2.4"]
 notebooks = ["jupyterlab", "ipywidgets", "plotly", "seaborn"]
 test = ["pytest", "nbclient", "nbformat", "ipykernel"]
+printer = ["mcp>=2.3,<3"]
 
 [tool.setuptools.packages.find]
 include = ["uavdesign*"]
