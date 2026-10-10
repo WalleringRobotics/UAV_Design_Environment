@@ -78,9 +78,10 @@ new CAD, timing/intrinsic calibration and a throughput check. Generated
 
 ## Analysis and validation
 
-Eight generated survey-wing notebooks cover requirements/payload, airfoil
+Ten generated survey-wing notebooks cover requirements/payload, airfoil
 selection, sizing, stability/trim, performance, structures, fabrication and
-electronics. The six original multirotor notebooks remain under
+electronics, followed by mission/CG sensitivity and a manufacturing/evidence audit.
+The six original multirotor notebooks remain under
 `platforms/multirotor/`. Edit notebook sources in `scripts/nbdefs/`.
 
 ```bash
@@ -94,6 +95,40 @@ Use the same BLAS/thread environment as the build command. CI separates fast
 model checks from CAD/artifact generation and executes notebooks after the CAD
 manifest exists. For a matching dependency environment, use the checked-in
 Python 3.12 `requirements-lock.txt` and then `pip install --no-deps -e .`.
+
+## Design documentation and independent review
+
+Start with the [design dossier](docs/design_dossier.md) and
+[external reviewer guide](docs/external_review.md). The dossier explains the
+requirements, design choices, calculation methods, coordinate frames, interfaces
+and evidence gaps. Each notebook includes equations, units, input/model references
+and questions for a reviewer. Generated sources remain in `scripts/nbdefs/`.
+
+Build the portable review package after building the current CAD release:
+
+```bash
+.venv/bin/python -m pip install -c requirements-lock.txt -e '.[cad,test,review,printer]'
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MPLBACKEND=Agg
+.venv/bin/python scripts/build_parts.py --no-converge --review-out outputs/review
+.venv/bin/python -m uavdesign.printing plan
+.venv/bin/python scripts/build_design_review.py --out outputs/design_review
+```
+
+Open **`outputs/design_review/index.html`** or share **`outputs/design_review.zip`**.
+It includes executed `.ipynb` notebooks and offline HTML with tables/plots,
+dimensioned CAD drawings, exploded/section views, part references, the CAD/BOM/SW
+exports, the current print-bed review, and a runnable source snapshot with exact
+inputs, dependencies, tests and checksums. The source snapshot excludes local
+credentials and MCP configuration. An external agent can start at
+`source/docs/external_review.md` and `review_request.json`, reproduce the analysis
+from `source/`, and return findings using the included JSON schema.
+
+The exporter rejects stale source/artifacts and failed notebook execution. It
+executes clean notebooks in fresh kernels against the packaged source, then
+publishes the complete folder and ZIP together. Viewing the HTML and plots needs
+no network connection. Manufacturer references require network access; rerunning
+requires the listed Python dependencies. Model predictions and CAD geometry do
+not establish physical fit, printed strength or flight qualification.
 
 ## Code and guides
 

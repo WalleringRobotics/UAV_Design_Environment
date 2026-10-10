@@ -18,8 +18,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install model, notebook and printer MCP dependencies
-        run: pip install -c requirements-lock.txt -e ".[test,printer]"
+      - name: Install model, notebook review and printer MCP dependencies
+        run: pip install -c requirements-lock.txt -e ".[test,printer,review]"
       - name: Notebooks are in sync with scripts/nbdefs
         run: |
           python scripts/build_notebooks.py
@@ -38,8 +38,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install CAD and test dependencies
-        run: pip install -c requirements-lock.txt -e ".[cad,test]"
+      - name: Install CAD, notebook review and test dependencies
+        run: pip install -c requirements-lock.txt -e ".[cad,test,review]"
       - name: Build printable parts and verify printer fit
         env:
           MPLBACKEND: Agg
@@ -56,6 +56,8 @@ jobs:
         env:
           MPLBACKEND: Agg
         run: pytest -q tests/test_notebooks.py
+      - name: Export independent design review with executed notebooks and CAD drawings
+        run: python scripts/build_design_review.py --out outputs/design_review
       - name: Upload fabrication deliverables
         if: success()
         uses: actions/upload-artifact@v4
@@ -67,3 +69,13 @@ jobs:
             outputs/print_projects/
           if-no-files-found: error
           retention-days: 14
+      - name: Upload independent design review
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: survey-wing-design-review
+          path: |
+            outputs/design_review/
+            outputs/design_review.zip
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WalleringRobotics/UAV_Design_Environment/blob/main/docs/review_findings.schema.json",
+  "title": "Independent survey-wing design review findings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "reviewer", "reviewed_at", "source_revision", "bundle_sha256", "scope", "summary", "findings"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "source_revision": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$", "description": "Full Git revision; null only if unavailable. File hashes additionally identify dirty snapshots."},
+    "bundle_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the received archive; null if no archive was supplied."},
+    "scope": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "summary": {"type": "string", "minLength": 1},
+    "environment": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Optional Python, OS, package versions and execution environment."},
+    "limitations": {"$ref": "#/$defs/string_list"},
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+  },
+  "$defs": {
+    "string_list": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "locator", "kind", "observation"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "description": "Path relative to the reviewed source/package root, or a direct primary-source URL."},
+        "locator": {"type": "string", "minLength": 1, "description": "JSON pointer, cell index/ID, symbol/line or figure caption; never only a vague document name."},
+        "kind": {"enum": ["calculated", "measured", "source_code", "test_result", "vendor_claim", "inferred", "missing"]},
+        "observation": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "severity", "status", "category", "requirement_ids", "evidence", "reproduction", "impact", "recommended_action", "closure_criteria", "uncertainties", "resolution_evidence"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^REV-[A-Z0-9]+-[0-9]{3,}$"},
+        "title": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["critical", "high", "medium", "low", "info"]},
+        "status": {"enum": ["open", "confirmed", "resolved", "rejected", "deferred"]},
+        "category": {"enum": ["implementation_error", "requirement_shortfall", "model_assumption", "missing_evidence", "interface", "reproducibility", "documentation", "observation"]},
+        "requirement_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}},
+        "reproduction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commands", "preconditions", "expected", "observed", "tolerance"],
+          "properties": {
+            "commands": {"$ref": "#/$defs/string_list"},
+            "preconditions": {"$ref": "#/$defs/string_list"},
+            "expected": {"type": "string", "minLength": 1},
+            "observed": {"type": "string", "minLength": 1},
+            "tolerance": {"type": "string", "minLength": 1, "description": "Numerical tolerance with units or an explicit qualitative/boolean comparison."}
+          }
+        },
+        "impact": {"type": "string", "minLength": 1},
+        "recommended_action": {"type": "string", "minLength": 1},
+        "closure_criteria": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "uncertainties": {"$ref": "#/$defs/string_list"},
+        "resolution_evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
+        "disposition_note": {"type": "string", "minLength": 1},
+        "owner": {"type": ["string", "null"]}
+      },
+      "allOf": [
+        {"if": {"properties": {"status": {"const": "resolved"}}}, "then": {"properties": {"resolution_evidence": {"minItems": 1}}}},
+        {"if": {"properties": {"status": {"enum": ["rejected", "deferred"]}}}, "then": {"required": ["disposition_note"]}}
+      ]
+    }
+  }
+}
