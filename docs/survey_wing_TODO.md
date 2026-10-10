@@ -3,6 +3,171 @@
 Branch `feature/survey-wing-fabrication` → draft PR #3, stacked on PR #2
 (`feature/flying-wing-platform`). Merge #2 first, then retarget #3 to `main`.
 
+## Resume here — Ubuntu handoff (2026-10-10)
+
+**Scope authorized by Ryan:** complete the full TODO, work autonomously, and
+commit regularly. This session ended at repository inspection so the actual
+implementation can continue on Ryan's Ubuntu PC. The detailed requirements in
+sections 0–6 below remain the acceptance criteria; the sequence here supersedes
+their execution order where necessary.
+
+### What this session actually completed
+
+- Read the handoff and inspected source files at
+  `74b6a9714c6ba601f3d2aac71d1b980c13bbd7e7`.
+- Confirmed PR #3 is open and draft, targeting
+  `feature/flying-wing-platform`; PR #2 is open, unmerged, and targets `main`.
+  Recheck both before any PR operation.
+- Confirmed there are no tracked `AGENTS.md` files at that revision. Check again
+  on the Ubuntu checkout, including any parent-directory instructions.
+- Found that **the CI implementation in task 1 already exists**:
+  separate fast/CAD jobs, notebook-sync check, CAD build, CAD regression tests,
+  notebook execution after the build in the same job, and artifact upload.
+  Its results and artifact contents were **not verified** in this session.
+- Inspected the design chain, CAD build/export/convergence, part builders,
+  fabrication configuration, notebook generator, and tests.
+- **No implementation changes, tests, CAD builds, previews, or regenerated
+  calibration were completed.** This documentation handoff is the only remote
+  change made by this session. The numbers below are inherited historical
+  results, not new measurements.
+
+The cloud shell could not connect to its configured proxy. A normal Git clone
+failed, and dependency installation could not obtain AeroSandbox, NeuralFoil,
+and the test tooling. CadQuery was present. The GitHub connector worked, so all
+61 repository files were retrieved and their Git blob hashes verified. A local
+snapshot repository was initialized solely for inspection; it has synthetic
+history and must **not** be pushed. There is no local code patch to recover.
+Use a normal clone of the existing GitHub branch on Ubuntu.
+
+### Start on Ubuntu
+
+For a new checkout (use the existing checkout instead if one is already present):
+
+```bash
+git clone --branch feature/survey-wing-fabrication \
+  https://github.com/WalleringRobotics/UAV_Design_Environment.git
+cd UAV_Design_Environment
+git status --short
+git log -5 --oneline
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[cad,test]"
+export MPLBACKEND=Agg
+python -m pytest -q -m "not cad" --ignore=tests/test_notebooks.py
+python scripts/build_notebooks.py
+git diff --exit-code -- platforms
+```
+
+Python 3.11 matches CI; `pyproject.toml` permits newer versions, but check CAD
+wheel compatibility before choosing one. Install Ubuntu's matching venv package
+if needed. Confirm the notebook `python3` kernel uses this environment; register
+it with `python -m ipykernel install --sys-prefix --name python3` if necessary.
+Record actual baseline results and dependency versions before editing.
+
+Then run `python scripts/build_parts.py --no-converge` to establish baseline
+geometry, manifests, fit, and previews, followed by the CAD and notebook tests.
+Keep the exported baseline for comparison outside the final output directory.
+
+### Work split and commit checkpoints
+
+Each row is a bounded implementation chunk. Commit after its relevant checks
+pass, and push the checkpoint to the existing branch. Include test results and
+remaining limitations in the commit/PR record. Do not wait until the entire
+project is finished to commit. Preserve unrelated local changes.
+
+| Order | Work package | Commit/checkpoint gate |
+|---|---|---|
+| A | **Baseline and CI audit** (task 1). Verify the existing workflow before changing it. Keep notebook execution in the CAD job after manifest generation; preserve the fast job's notebook exclusion and the sync check. | Fast tests pass; baseline CAD build and CAD tests pass; inspect the artifact/manifest and existing notebook execution. Fix only demonstrated workflow gaps. |
+| B | **Reliable convergence and current calibration** (task 2). Inspect/fix the stopping and failure criteria described below, run the full loop, inspect all four previews, and adjust the pod viewing angle if needed. | Commit regenerated calibration only from a successful build with sizing/balance agreement within 1%; record measurements and preview inspection. Add regression tests for changed convergence behavior. |
+| C | **Notebook foundation and design notebooks 01–04** (task 3). Add/register `scripts/nbdefs/survey_wing.py`, generate checked-in notebooks, implement requirements/payload, airfoil selection, sizing, stability, and both balance alternatives. Add the launch input/trade from task 5.2 where notebook 03 needs it, retaining hand launch as the selected baseline. | Generated notebooks are deterministic, run on fresh kernels, and use YAML/model inputs. Commit definitions and generated notebooks together. Time each notebook, not merely each cell. |
+| D | **Performance, structures, fabrication, and electronics notebooks 05–08** (task 3), plus the tested propulsion model (task 5.3) and thermal calculation needed for later CAD (task 5.4). | Execute all notebooks after a parts build; verify missing-manifest behavior for 07 separately. Show model assumptions and unresolved BOM evidence explicitly. Run model tests and notebook-sync check. |
+| E | **Pod retention and motor features** (tasks 4.1–4.3 and 4.6). Add cage ledges, battery retention in both bays, hatch pockets/tongues, and true motor slots. Share geometric datums between mating features. | Focused geometry tests prove coaxial/aligned holes, matching pockets, connected valid solids, clearance, and printer fit. Commit in small feature groups. |
+| F | **Wing fabrication features** (tasks 4.4–4.5). Add elevon horn bosses, servo covers, and segment alignment on spanwise and chordwise joints. | Add tests in `tests/test_fabrication.py`; validate both mirrored sides, feature placement, joint fit, and all-part printer fit. Update manifest expectations for added parts. |
+| G | **Remaining integration and design issues** (tasks 4.7–4.8 and 5). Profile the pod before optimizing; investigate the root fairing and folded-prop envelope; build the Orin cooling duct; provide the optional bungee hook and launch trade without selecting bungee for Ryan. Preserve BOM confirmation fields. | Record measured build times, thermal sizing, geometric checks and limits. Exercise optional launch geometry separately. Report both balance alternatives with cage/lug clearance; do not claim folded-blade clearance without hub/blade geometry. |
+| H | **Documentation and environment** (task 6). Write the design-to-print/assembly/CG guide; update README, environment dependencies, and package module descriptions while keeping CAD optional. | Documentation commands and references match the implementation; base imports work without eager CadQuery imports. Commit independently. |
+| I | **Final integration and calibration**. Re-converge after all mass/geometry changes, regenerate notebooks, export a clean final output set, inspect previews, and rerun required checks. | All final gates below pass on the final revision; commit final calibration, generated notebooks, and updated status/results. Update PR title/body to the actual final scope. |
+
+C–D complete the original tasks 1–3 milestone. Once that milestone has passed
+locally **and in CI**, PR #3 can be marked ready as requested in task 6.5.
+E–H may follow in separate PRs if that makes review clearer; they remain in scope.
+If keeping everything on #3, retain draft status until the combined result is
+verified. PR #2 must be merged before retargeting #3 to `main`; do not merge a
+dependency merely to simplify the handoff. Review its state and checks first.
+
+### Findings to resolve during implementation
+
+1. **Convergence currently does not enforce the requested AUW gate.**
+   `uavdesign/fab/build.py:converge` stops on changes to wing/pod correction
+   factors, writes calibration even after exhausting iterations, and does not
+   require sizing AUW and balance AUW to agree within 1%. Its first comparison
+   also uses factors of 1 rather than the calibration loaded into the first
+   design. Check cage-mass feedback too. A failed convergence must be explicit,
+   and the saved calibration and exported design must describe a consistent,
+   validated result. Define/test behavior for max-iteration exhaustion.
+2. **The part count is historical.** The original 35-STL acceptance applies to
+   the baseline. Servo covers, a duct, and optional launch hardware can change
+   the count. Validate exact agreement between manifest entries and exported
+   STL/STEP names, with no stale outputs, rather than pinning final acceptance
+   to 35. Test default and optional builds separately.
+3. **Notebook runtime is not currently enforced as a whole-notebook limit.**
+   `tests/test_notebooks.py` currently gives nbclient 180 seconds per cell.
+   Record/enforce the task's under-60-second fresh-kernel requirement for the
+   survey notebooks other than 07; avoid rerunning expensive design/VLM work
+   unnecessarily within a notebook.
+4. **The PR description is stale.** It lists CAD CI as missing even though the
+   workflow exists. Correct it when reporting verified results, and distinguish
+   implementation from successful CI execution.
+5. **Balance and fit need joint review.** A cage shift must preserve the stated
+   5 mm clearance to the spar-box lugs and align the camera window, mast opening,
+   tabs, ledges, and payload mass locations. Battery retention must accommodate
+   the real pack envelope at the reported battery position in both bays.
+6. **Propulsion and folding clearance have incomplete evidence.** A CT/CP model
+   is an estimate, not measured thrust. State coefficients, voltage/RPM/load
+   assumptions, and candidate motor data provenance. The selected motor mass,
+   ESC, and folding hub remain confirmation items. Check the folded envelope
+   separately from the existing deployed prop-plane clearance test.
+7. **CAD cost should be measured before changing construction order or caching.**
+   Profile `build_pod`; if caching is justified, key it by all relevant geometry
+   inputs and validate that changed inputs invalidate the cached body.
+
+### Final verification and handoff record
+
+```bash
+python scripts/build_parts.py
+python -m pytest -q -m "not cad" --ignore=tests/test_notebooks.py
+python -m pytest -q -m cad
+python -m pytest -q tests/test_notebooks.py
+python scripts/build_notebooks.py
+git diff --exit-code -- platforms
+git diff --check
+```
+
+Run the notebook-sync diff after committing intentional calibration/notebook
+changes, so those expected edits do not obscure generator drift. Also exercise
+the CI `--no-converge` path using the committed calibration. Before treating the
+work as complete, record:
+
+- Commit SHA, test counts/results, notebook runtimes, CI run, and artifact link.
+- Sizing AUW, CAD balance AUW, percentage mismatch, span, static margin,
+  battery position/bay, printed masses, and final part count.
+- Visual inspection of all four previews, especially the pod interior.
+- Manifest/STL/STEP agreement, all-part fit, and valid connected solids.
+- Launch/balance alternatives, propulsion assumptions, thermal estimate, and
+  unresolved vendor confirmations. Keep purchasing, launch selection, and
+  flight testing with Ryan; nothing touching the Tekever side is in scope.
+
+**Suggested first prompt for the Ubuntu Codex session:**
+
+> Continue the full survey-wing TODO on feature/survey-wing-fabrication. Read the
+> "Resume here — Ubuntu handoff" section in docs/survey_wing_TODO.md first, inspect
+> the actual checkout, and start with work package A. Complete all packages
+> autonomously, commit and push each validated chunk regularly, and keep me
+> updated. Preserve the decisions reserved for Ryan. Do not assume the previous
+> cloud session completed any implementation or verification.
+
+---
+
 ## 0. Orientation (read first)
 
 Pipeline: YAML → design → CAD → calibration → design (loop) → print files.
@@ -40,11 +205,16 @@ Conventions:
 
 ---
 
-## 1. CI for the CAD build — do first
+## 1. CI for the CAD build — implemented; verify first
+
+**Status at 2026-10-10:** the workflow below is already implemented at `74b6a97`;
+CI results and artifacts still need verification. Preserve the fast job's
+`--ignore=tests/test_notebooks.py` so fabrication notebook execution remains in
+the CAD job after its build step.
 
 **File:** `.github/workflows/ci.yml`
 
-1. **Fast job.** Install `-e ".[test]"` and run `pytest -q -m "not cad"`. Keep the existing notebook-sync check.
+1. **Fast job.** Install `-e ".[test]"` and run `pytest -q -m "not cad" --ignore=tests/test_notebooks.py`. Keep the existing notebook-sync check.
 2. **CAD job.**
    - Install `-e ".[cad,test]"`.
    - Run `python scripts/build_parts.py --no-converge`. It exits non-zero if any part does not fit.
@@ -52,7 +222,9 @@ Conventions:
    - Upload `outputs/parts/` (STL, STEP, `PRINT_LIST.md`, `manifest.json`, PNGs) with `actions/upload-artifact@v4`.
 3. **Notebook test.** `tests/test_notebooks.py` must run after the CAD job's build step, in the same job, because the fabrication notebook (task 3) reads `outputs/parts/manifest.json`.
 
-**Done when:** both jobs are green on PR #3 and the artifact downloads with 35 STLs.
+**Done when:** both jobs are green on PR #3 and the artifact downloads with a
+complete STL/STEP set matching the manifest (35 STLs for the historical baseline;
+update the count for intentional new parts).
 
 ## 2. Re-run and commit the converged build
 
