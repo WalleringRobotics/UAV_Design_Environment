@@ -12,7 +12,7 @@ layout:
   bed_margin_mm: 5
   process_clearance_mm: 8  # reserved per side for brim/support; verify in sliced preview
   part_spacing_mm: 5      # additional space between reserved envelopes
-  single_part_above_height_mm: 150
+  single_part_above_height_mm: null  # batch tall compatible parts with layer-by-layer printing
 slicer:
   executable: prusa-slicer
   presets:

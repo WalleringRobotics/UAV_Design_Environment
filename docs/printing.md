@@ -8,12 +8,30 @@ exposed by this integration.
 
 The project configuration is
 [`print_projects/survey_wing/project.yaml`](../print_projects/survey_wing/project.yaml).
-It targets a 250 × 220 × 270 mm bed and a 0.4 mm nozzle. The initial exported plan
-contains **42 parts on 36 beds**, with **1,489 g of CAD-estimated printed parts**.
+It targets a 250 × 220 × 270 mm bed and a 0.4 mm nozzle. The inventory contains
+**42 parts on 21 beds**, with **1,489 g of CAD-estimated printed parts**. Convex
+footprint packing reduces the original 36-bed layout by 15 beds (42%).
 That mass excludes supports, brims, purge and other process waste; it is not a
-slicer filament estimate. Tall parts are given individual beds, and layout
-clearances reserve space for the printing process. Inspect actual supports and
-brims after slicing.
+slicer filament estimate. Inspect actual supports and brims after slicing.
+
+| Profile | Original beds | Optimized beds |
+|---|---:|---:|
+| Wing skin | 14 | 7 |
+| Elevon | 6 | 1 |
+| Fin | 2 | 2 |
+| Pod shell | 5 | 5 |
+| Hatch | 3 | 2 |
+| Structural parts | 4 | 3 |
+| Skid | 2 | 1 |
+| **Total** | **36** | **21** |
+
+The planner preserves the canonical print orientation and Z height, translating
+parts and rotating them by arbitrary angles about Z. It keeps exact material and
+profile groups together. Clearances remain **8 mm per part for the process,
+5 mm between those reserved outlines, and 5 mm at the bed edge**: model geometry
+stays at least 13 mm from the edge and 21 mm from other model geometry. Tall parts
+can share compatible beds when printed layer by layer. This is an improved
+validated arrangement, not a claim of a mathematically minimum bed count.
 
 Prusa's official vendor bundle 2.5.11 identifies CORE One, One+ and One+ (Gen 2)
 as `COREONE`, with this build volume. Its normal-flow and high-flow 0.4 mm nozzle
@@ -99,6 +117,16 @@ The report records configuration/input hashes, executable version, actual
 slicer time/material estimates and toolpath checks. Missing presets or slicer
 dependencies remain explicit blockers. Existing G-code is not overwritten.
 External post-processing commands and imported 3MF configuration are rejected.
+Validation uses bounded snapshots of the inputs; slicing reads private staged
+copies of those exact bytes. Source changes during preparation or execution
+discard the output. Reports retain the original and actual staged commands.
+
+Multi-part beds require **Complete individual objects** to be disabled in
+PrusaSlicer (`complete_objects = 0`). The adapter checks this explicitly: these
+layouts print all parts layer by layer and are not sequential-print layouts.
+Sequential printing needs separate toolhead collision clearances and ordering.
+Canonical part orientation and Z height remain fixed; bed packing rotates only
+about the vertical axis. [Prusa's sequential-printing guidance](https://help.prusa3d.com/article/sequential-printing_124589)
 
 Review support regions, adhesion, nozzle/material selection, the loaded spool and
 the clear bed before authorizing a print. The successful slice state is

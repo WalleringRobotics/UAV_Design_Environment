@@ -120,6 +120,7 @@ def inputs(tmp_path, monkeypatch):
         "fill_pattern": "gyroid", "extrusion_width": "0.5", "support_material": "0",
         "start_gcode": "G28", "end_gcode": "M104 S0", "post_process": "",
         "perimeter_speed": "40", "infill_speed": "50", "travel_speed": "100", "retract_length": "0.8",
+        "complete_objects": "0",
     }
     preset.write_text("\n".join(f"{key} = {value}" for key, value in settings.items()))
     monkeypatch.setattr(slicer, "_probe", lambda executable: {"executable": "/fake/prusa-slicer", "version": "2.9.6", "sha256": "binaryhash"})
@@ -163,6 +164,32 @@ def test_incomplete_and_sectioned_presets_are_explicit(inputs):
             slicer.prepare_slice(plate, [preset], output)
 
 
+@pytest.mark.parametrize("complete_objects", ["0", "1"])
+def test_multi_part_beds_require_layer_by_layer_printing(inputs, complete_objects):
+    plate, preset, output, settings = inputs
+    with zipfile.ZipFile(plate) as archive:
+        mesh = archive.read("3D/3dmodel.model").replace(
+            b"</build>", b'<item objectid="1" transform="1 0 0 0 1 0 0 0 1 40 0 0"/></build>')
+    with zipfile.ZipFile(plate, "w") as archive:
+        archive.writestr("3D/3dmodel.model", mesh)
+    settings["complete_objects"] = complete_objects
+    preset.write_text("\n".join(f"{key} = {value}" for key, value in settings.items()))
+    if complete_objects == "1":
+        with pytest.raises(slicer.SlicerError, match="layer-by-layer"):
+            slicer.prepare_slice(plate, [preset], output)
+    else:
+        result = slicer.prepare_slice(plate, [preset], output)
+        assert result["plate"]["build_items"] == 2
+
+
+def test_exported_configuration_requires_explicit_print_sequence(inputs):
+    plate, preset, output, settings = inputs
+    del settings["complete_objects"]
+    preset.write_text("\n".join(f"{key} = {value}" for key, value in settings.items()))
+    with pytest.raises(slicer.SlicerError, match="missing complete_objects"):
+        slicer.prepare_slice(plate, [preset], output)
+
+
 def test_embedded_project_config_is_rejected(inputs):
     plate, preset, output, _ = inputs
     with zipfile.ZipFile(plate, "a") as archive:
@@ -188,13 +215,23 @@ def _gcode_text(settings):
 
 def test_actual_slice_validates_and_publishes_new_file(inputs, monkeypatch):
     plate, preset, output, settings = inputs
+    original_plate, original_preset = plate.read_bytes(), preset.read_bytes()
     def run(command, timeout):
+        staged_plate = Path(command[-1])
+        staged_preset = Path(command[command.index("--load") + 1])
+        assert staged_plate != plate and staged_plate.read_bytes() == original_plate
+        assert staged_preset != preset and staged_preset.read_bytes() == original_preset
+        assert staged_plate.stat().st_mode & 0o777 == 0o400
+        assert staged_preset.stat().st_mode & 0o777 == 0o400
         Path(command[command.index("--output") + 1]).write_text(_gcode_text(settings))
         return 0, "done"
     monkeypatch.setattr(slicer, "_run", run)
     result = slicer.slice_plate(plate, [preset], output, expected_settings=EXPECTED)
     assert result["state"] == "sliced_for_review" and result["print_ready"] is None
     assert result["gcode"]["estimated_time_s"] == 62 and result["gcode"]["filament_mm"] == 42.5
+    assert result["input_mode"] == "validated_snapshot"
+    assert result["command"][-1] == str(plate)
+    assert result["executed_command"][-1] != str(plate)
     assert output.is_file()
     with pytest.raises(slicer.SlicerError, match="new .gcode"):
         slicer.slice_plate(plate, [preset], output)
@@ -221,6 +258,48 @@ def test_changed_source_discards_gcode(inputs, monkeypatch):
         return 0, ""
     monkeypatch.setattr(slicer, "_run", run)
     with pytest.raises(slicer.SlicerError, match="changed"):
+        slicer.slice_plate(plate, [preset], output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("source_index", [0, 1])
+def test_source_change_during_binary_probe_is_rejected(inputs, monkeypatch, source_index):
+    plate, preset, output, _ = inputs
+    source = inputs[source_index]
+    def probe(executable):
+        source.write_bytes(source.read_bytes() + b"\n")
+        return {"executable": "/fake/prusa-slicer", "version": "2.9.6", "sha256": "binaryhash"}
+    monkeypatch.setattr(slicer, "_probe", probe)
+    with pytest.raises(slicer.SlicerError, match="changed during preparation"):
+        slicer.prepare_slice(plate, [preset], output)
+    assert not output.parent.exists()
+
+
+def test_source_change_during_staging_aborts_before_execution(inputs, monkeypatch):
+    plate, preset, output, _ = inputs
+    write_bytes = Path.write_bytes
+    def stage_write(path, data):
+        result = write_bytes(path, data)
+        if path.name == "preset.ini":
+            preset.write_text(preset.read_text() + "\n# changed during staging\n")
+        return result
+    monkeypatch.setattr(Path, "write_bytes", stage_write)
+    monkeypatch.setattr(slicer, "_run", lambda *args: pytest.fail("Changed source reached slicer execution"))
+    with pytest.raises(slicer.SlicerError, match="changed before execution"):
+        slicer.slice_plate(plate, [preset], output)
+    assert not output.exists() and not list(output.parent.glob(".slice-*"))
+
+
+def test_changed_staged_snapshot_discards_output(inputs, monkeypatch):
+    plate, preset, output, settings = inputs
+    def run(command, timeout):
+        staged_preset = Path(command[command.index("--load") + 1])
+        staged_preset.chmod(0o600)
+        staged_preset.write_text(staged_preset.read_text() + "\n# changed snapshot\n")
+        Path(command[command.index("--output") + 1]).write_text(_gcode_text(settings))
+        return 0, ""
+    monkeypatch.setattr(slicer, "_run", run)
+    with pytest.raises(slicer.SlicerError, match="staged slicing input changed"):
         slicer.slice_plate(plate, [preset], output)
     assert not output.exists()
 

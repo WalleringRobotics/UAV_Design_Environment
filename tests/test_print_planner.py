@@ -62,14 +62,14 @@ def _assert_clearances(plan):
             assert np.all(low >= margin - 1e-6)
             assert np.all(high <= np.array(bed[:2]) - margin + 1e-6)
             actual = p["placed_bounds_mm"]
-            np.testing.assert_allclose(np.array(actual["min"][:2]) - low, halo)
-            np.testing.assert_allclose(high - np.array(actual["max"][:2]), halo)
+            np.testing.assert_allclose(np.array(actual["min"][:2]) - low, halo, atol=1e-6)
+            np.testing.assert_allclose(high - np.array(actual["max"][:2]), halo, atol=1e-6)
             assert actual["min"][2] == 0
             assert actual["max"][2] <= bed[2]
         for i, a in enumerate(placements):
             for b in placements[i + 1:]:
-                aa, bb = a["reserved_bounds_mm"], b["reserved_bounds_mm"]
-                assert any(aa["max"][axis] + gap <= bb["min"][axis] + 1e-6 or bb["max"][axis] + gap <= aa["min"][axis] + 1e-6 for axis in (0, 1))
+                assert planner._polygon_distance(a["placed_polygon_mm"], b["placed_polygon_mm"]) >= 2 * halo + gap - 1e-6
+                assert planner._polygon_distance(a["reserved_polygon_mm"], b["reserved_polygon_mm"]) >= gap - 1e-6
 
 
 def test_plan_is_deterministic_isolates_settings_and_covers_every_part(tmp_path):
@@ -217,8 +217,53 @@ def test_current_real_airframe_inventory_is_covered_with_clearance():
     if not (root / "manifest.json").is_file():
         pytest.skip("CAD artifacts are absent; generate them to check actual airframe plates")
     inventory = planner.load_inventory(root)
-    plates = planner._arrange(inventory, PROJECT)
-    plan = {"project": PROJECT, "plates": plates}
+    project = copy.deepcopy(PROJECT)
+    project["layout"]["single_part_above_height_mm"] = None
+    plates = planner._arrange(inventory, project)
+    plan = {"project": project, "plates": plates}
     _assert_clearances(plan)
     assert sorted(p["part"] for plate in plates for p in plate["placements"]) == sorted(p["part"] for p in inventory["parts"])
     assert all(p["triangle_count"] > 0 for p in inventory["parts"])
+    assert len(plates) <= 21, "Regressed to sparse bed layouts instead of polygon nesting"
+    assert sum(p["profile"] == "elevon" for p in plates) == 1
+    assert sum(p["profile"] == "skid" for p in plates) == 1
+
+
+def test_default_allows_tall_parts_together_but_explicit_threshold_is_respected(tmp_path):
+    source = _inventory(tmp_path, [{"size": (20, 15, 200)}, {"size": (20, 15, 200)}])
+    project = copy.deepcopy(PROJECT)
+    del project["layout"]["single_part_above_height_mm"]
+    plan = planner.export_plan(source, project, tmp_path / "shared")
+    assert plan["project"]["layout"]["single_part_above_height_mm"] is None
+    assert len(plan["plates"]) == 1
+    isolated = planner.export_plan(source, PROJECT, tmp_path / "isolated")
+    assert len(isolated["plates"]) == 2
+
+
+def test_polygon_distance_and_round_clearance_reject_near_misses():
+    a = np.array([[0., 0.], [100, 0], [100, 10], [0, 10]])
+    b = a + [0, 31]
+    assert planner._polygon_distance(a, b) == pytest.approx(21)
+    assert planner._polygon_distance(a, a + [0, 9]) == 0
+    assert planner._polygon_distance(a, a + [103, 14]) == pytest.approx(5)
+    buffered = planner._buffer(a, 8)
+    np.testing.assert_allclose(buffered.min(axis=0), [-8, -8], atol=1e-8)
+    np.testing.assert_allclose(buffered.max(axis=0), [108, 18], atol=1e-8)
+    assert planner._polygon_distance(buffered, planner._buffer(b, 8)) == pytest.approx(5)
+
+
+def test_layout_validator_rejects_overlap_and_geometry_changes(tmp_path):
+    source = _inventory(tmp_path, [{}, {}])
+    plan = planner.export_plan(source, PROJECT, tmp_path / "plan")
+    inventory = planner.load_inventory(source)
+    broken = copy.deepcopy(plan["plates"])
+    broken[0]["placements"][1]["translation_mm"][0] += 2
+    with pytest.raises(ValueError, match="transform"):
+        planner._validate_layout(broken, inventory, plan["project"])
+    broken = copy.deepcopy(plan["plates"])
+    second = broken[0]["placements"][1]
+    first = broken[0]["placements"][0]
+    for key in ("translation_mm", "placed_polygon_mm"):
+        second[key] = first[key]
+    with pytest.raises(ValueError, match="clearance"):
+        planner._validate_layout(broken, inventory, plan["project"])

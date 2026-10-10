@@ -9,6 +9,7 @@ Slicing never uploads G-code, starts a printer, or executes profile post-process
 from __future__ import annotations
 
 import hashlib
+import io
 import math
 import os
 from pathlib import Path
@@ -32,7 +33,7 @@ _REQUIRED = {
     "temperature", "first_layer_temperature", "bed_temperature", "first_layer_bed_temperature",
     "layer_height", "first_layer_height", "perimeters", "fill_density", "fill_pattern",
     "extrusion_width", "support_material", "start_gcode", "end_gcode", "post_process",
-    "perimeter_speed", "infill_speed", "travel_speed", "retract_length",
+    "perimeter_speed", "infill_speed", "travel_speed", "retract_length", "complete_objects",
 }
 _CORE = "{http://schemas.microsoft.com/3dmanufacturing/core/2015/02}"
 
@@ -52,13 +53,35 @@ def _number(value: str, key: str) -> float:
     return number
 
 
-def _settings(path: Path) -> dict[str, str]:
-    if not path.is_file() or path.stat().st_size > 2_000_000:
-        raise SlicerError("Supply a complete exported PrusaSlicer INI (maximum 2 MB)")
+def _read_input(path: Path, limit: int, label: str) -> bytes:
+    try:
+        with path.open("rb") as stream:
+            data = stream.read(limit + 1)
+    except OSError:
+        raise SlicerError(f"Cannot read {label}") from None
+    if len(data) > limit:
+        raise SlicerError(f"{label} exceeds the supported input size")
+    return data
+
+
+def _verify_sources(prepared: dict, phase: str) -> None:
+    for key in ("plate", "preset"):
+        source = prepared[key]
+        try:
+            unchanged = _sha(Path(source["path"])) == source["sha256"]
+        except OSError:
+            unchanged = False
+        if not unchanged:
+            raise SlicerError(f"A slicing input changed {phase}; output discarded")
+
+
+def _settings(path: Path, data: bytes | None = None) -> dict[str, str]:
+    if data is None:
+        data = _read_input(path, 2_000_000, "complete exported PrusaSlicer INI")
     settings = {}
     try:
-        text = path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeError):
+        text = data.decode("utf-8-sig")
+    except UnicodeError:
         raise SlicerError("Cannot read the exported configuration as UTF-8") from None
     for raw in text.splitlines():
         line = raw.strip()
@@ -75,6 +98,8 @@ def _settings(path: Path) -> dict[str, str]:
         raise SlicerError("Incomplete exported configuration; missing " + ", ".join(missing))
     if settings["post_process"].strip('" '):
         raise SlicerError("External post-processing commands are disabled")
+    if settings["complete_objects"] not in {"0", "1"}:
+        raise SlicerError("Setting complete_objects must be 0 or 1")
     for key, value in settings.items():
         if any(token in key.lower() for token in ("password", "apikey", "api_key", "token")) and value.strip('" '):
             raise SlicerError("Remove connection credentials from the slicing configuration")
@@ -148,11 +173,11 @@ def _expected(settings: dict, expected: dict | None) -> list[str]:
     return notes
 
 
-def _plate(path: Path, bed: list[float]) -> dict:
-    if path.suffix.lower() != ".3mf" or not path.is_file():
+def _plate(path: Path, bed: list[float], data: bytes | None = None) -> dict:
+    if path.suffix.lower() != ".3mf" or (data is None and not path.is_file()):
         raise SlicerError("Supply an existing geometry-only planned .3mf plate")
     try:
-        with zipfile.ZipFile(path) as archive:
+        with zipfile.ZipFile(io.BytesIO(data) if data is not None else path) as archive:
             infos = archive.infolist()
             if len(infos) > 100 or sum(i.file_size for i in infos) > 250_000_000:
                 raise SlicerError("3MF exceeds the supported archive size")
@@ -243,25 +268,39 @@ def prepare_slice(plate_path: Path, preset_paths: list[Path], output_path: Path,
     This performs only local executable help/version probes. It does not slice,
     change an input, contact a printer, or create output directories.
     """
+    return _prepare_snapshot(plate_path, preset_paths, output_path, executable,
+                             machine=machine, expected_settings=expected_settings)[0]
+
+
+def _prepare_snapshot(plate_path: Path, preset_paths: list[Path], output_path: Path,
+                      executable: str, *, machine: dict | None,
+                      expected_settings: dict | None) -> tuple[dict, dict[str, bytes], dict]:
     if len(preset_paths) != 1:
         raise SlicerError("Supply exactly one complete exported PrusaSlicer INI per plate")
     plate, preset, output = Path(plate_path).resolve(), Path(preset_paths[0]).resolve(), Path(output_path).resolve()
     if (output.suffix.lower() != ".gcode" or output.exists() or output in {plate, preset}
             or preset.parent == output.parent or output.is_relative_to(preset)):
         raise SlicerError("Choose a new .gcode output outside the preset directory and input files")
-    settings = _settings(preset)
+    snapshots = {"plate": _read_input(plate, 250_000_000, "planned 3MF"),
+                 "preset": _read_input(preset, 2_000_000, "complete exported PrusaSlicer INI")}
+    hashes = {key: hashlib.sha256(data).hexdigest() for key, data in snapshots.items()}
+    settings = _settings(preset, snapshots["preset"])
     target = _machine(settings, machine or DEFAULT_MACHINE)
     notes = _expected(settings, expected_settings)
-    geometry = _plate(plate, target["bed_mm"])
+    geometry = _plate(plate, target["bed_mm"], snapshots["plate"])
+    if geometry["build_items"] > 1 and settings["complete_objects"] != "0":
+        raise SlicerError("Multi-part planned beds require layer-by-layer printing (complete_objects = 0)")
     binary = _probe(executable)
     command = [binary["executable"], "--load", str(preset), "--config-compatibility", "disable",
                "--dont-arrange", "--post-process", "", "--no-binary-gcode",
                "--export-gcode", "--output", str(output), str(plate)]
     observed = {key: settings[key] for key in sorted(_REQUIRED) if key not in {"start_gcode", "end_gcode", "post_process"}}
-    return {"state": "prepared", "sliced": False, "printer_action": "none", "command": command,
-            "slicer": binary, "plate": {"path": str(plate), "sha256": _sha(plate), **geometry},
-            "preset": {"path": str(preset), "sha256": _sha(preset), "settings": observed},
-            "machine": target, "output": str(output), "review_notes": notes}
+    prepared = {"state": "prepared", "sliced": False, "printer_action": "none", "command": command,
+                "slicer": binary, "plate": {"path": str(plate), "sha256": hashes["plate"], **geometry},
+                "preset": {"path": str(preset), "sha256": hashes["preset"], "settings": observed},
+                "machine": target, "output": str(output), "review_notes": notes}
+    _verify_sources(prepared, "during preparation")
+    return prepared, snapshots, settings
 
 
 def _gcode(path: Path, settings: dict) -> dict:
@@ -332,25 +371,36 @@ def slice_plate(plate_path: Path, preset_paths: list[Path], output_path: Path,
     """Slice locally and publish a new G-code only after validating its contents."""
     if isinstance(timeout_s, bool) or not math.isfinite(timeout_s) or not 0 < timeout_s <= 3600:
         raise SlicerError("Slicing timeout must be greater than zero and at most 3600 seconds")
-    prepared = prepare_slice(plate_path, preset_paths, output_path, executable,
-                             machine=machine, expected_settings=expected_settings)
+    prepared, snapshots, settings = _prepare_snapshot(
+        plate_path, preset_paths, output_path, executable,
+        machine=machine, expected_settings=expected_settings)
     output = Path(prepared["output"])
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".slice-", dir=output.parent) as directory:
-        staged = Path(directory) / output.name
+        staging = Path(directory)
+        staged = staging / output.name
+        staged_inputs = {"plate": staging / "input.3mf", "preset": staging / "preset.ini"}
+        for key, path in staged_inputs.items():
+            path.write_bytes(snapshots[key])
+            path.chmod(0o400)
         command = list(prepared["command"])
+        command[command.index("--load") + 1] = str(staged_inputs["preset"])
         command[command.index("--output") + 1] = str(staged)
+        command[-1] = str(staged_inputs["plate"])
+        _verify_sources(prepared, "before execution")
         code, _ = _run(command, timeout_s)
         if code:
             raise SlicerError(f"PrusaSlicer slicing failed with exit status {code}")
-        for source in (prepared["plate"], prepared["preset"]):
-            if _sha(Path(source["path"])) != source["sha256"]:
-                raise SlicerError("A slicing input changed during execution; output discarded")
-        result = _gcode(staged, _settings(Path(prepared["preset"]["path"])))
+        _verify_sources(prepared, "during execution")
+        for key, path in staged_inputs.items():
+            if _sha(path) != prepared[key]["sha256"]:
+                raise SlicerError("A staged slicing input changed during execution; output discarded")
+        result = _gcode(staged, settings)
+        _verify_sources(prepared, "before publication")
         try:
             # Atomic, exclusive publication on the same filesystem; never clobber.
             os.link(staged, output)
         except FileExistsError:
             raise SlicerError("G-code output appeared during slicing; refusing to overwrite it") from None
     return {**prepared, "state": "sliced_for_review", "sliced": True, "gcode": result,
-            "print_ready": None}
+            "executed_command": command, "input_mode": "validated_snapshot", "print_ready": None}

@@ -1,7 +1,7 @@
 """Offline, hash-bound plate planning from an existing CAD artifact inventory.
 
 The result is arranged geometry, not machine instructions. Mesh orientation is
-preserved; only translations and optional 90-degree rotations about Z are used.
+preserved; only translations and rotations about the vertical Z axis are used.
 """
 from __future__ import annotations
 
@@ -62,6 +62,47 @@ def _triangles(data: bytes, name: str) -> np.ndarray:
     return result
 
 
+def _convex(points):
+    """Exact-coordinate convex hull; no preview rounding enters placement checks."""
+    from scipy.spatial import ConvexHull
+    points = np.asarray(points, dtype=float)
+    return points[ConvexHull(points).vertices]
+
+
+def _area(polygon):
+    return abs(float(np.sum(polygon[:, 0] * np.roll(polygon[:, 1], -1)
+                            - polygon[:, 1] * np.roll(polygon[:, 0], -1)))) / 2
+
+
+def _minkowski(a, b):
+    """Convex Minkowski sum via sorted edge directions, linear-size output."""
+    a = np.roll(a, -np.lexsort((a[:, 0], a[:, 1]))[0], axis=0)
+    b = np.roll(b, -np.lexsort((b[:, 0], b[:, 1]))[0], axis=0)
+    edges = np.concatenate([np.roll(a, -1, axis=0) - a, np.roll(b, -1, axis=0) - b])
+    angles = np.arctan2(edges[:, 1], edges[:, 0]) % (2 * np.pi)
+    order = np.argsort(angles, kind="stable")
+    start = a[0] + b[0]
+    return _convex(np.concatenate([start[None, :], start + np.cumsum(edges[order], axis=0)[:-1]]))
+
+
+def _buffer(polygon, distance):
+    """Conservative circular offset, bounded by a circumscribed 32-sided disk.
+
+    Axis extrema equal distance exactly. Unlike a miter offset, acute airfoil
+    tips cannot produce arbitrarily long spikes. Radial overestimate is <0.5%.
+    """
+    if not distance:
+        return polygon.copy()
+    angles = (np.arange(32) + 0.5) * (2 * np.pi / 32)
+    disk = np.column_stack((np.cos(angles), np.sin(angles))) * (distance / np.cos(np.pi / 32))
+    return _minkowski(polygon, disk)
+
+
+def _rotate(points, degrees):
+    angle = math.radians(degrees)
+    return np.asarray(points) @ np.array([[math.cos(angle), math.sin(angle)], [-math.sin(angle), math.cos(angle)]])
+
+
 def _inventory(parts_dir: Path):
     root = Path(parts_dir).resolve()
     manifest_path = _safe_file(root, "manifest.json")
@@ -102,6 +143,7 @@ def _inventory(parts_dir: Path):
                      "settings": settings, "mass_estimate_g": _number(row.get("mass_g"), f"{name} mass"),
                      "bounds_mm": {"min": low.tolist(), "max": high.tolist()},
                      "size_mm": (high - low).tolist(), "triangle_count": len(mesh),
+                     "footprint_polygon_mm": _convex(points[:, :2]).tolist(),
                      "notes": row.get("notes", [])})
         meshes[name] = mesh
     actual = {str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() and p.suffix.lower() == ".stl"}
@@ -130,9 +172,12 @@ def normalize_project(project: dict) -> dict:
     bed = [_number(x, "bed dimension", positive=True) for x in bed]
     _number(printer.get("nozzle_diameter_mm"), "nozzle diameter", positive=True)
     layout = project.get("layout", {})
-    values = {k: _number(layout.get(k, default), k, positive=k == "single_part_above_height_mm")
+    values = {k: _number(layout.get(k, default), k)
               for k, default in [("bed_margin_mm", 5), ("part_spacing_mm", 5),
-                                 ("process_clearance_mm", 8), ("single_part_above_height_mm", 150)]}
+                                 ("process_clearance_mm", 8)]}
+    threshold = layout.get("single_part_above_height_mm")
+    values["single_part_above_height_mm"] = (None if threshold is None else
+                                           _number(threshold, "single_part_above_height_mm", positive=True))
     if 2 * values["bed_margin_mm"] >= min(bed[:2]):
         raise ValueError("Bed margin consumes the printable area")
     normalized = json.loads(json.dumps(project, allow_nan=False))
@@ -141,66 +186,266 @@ def normalize_project(project: dict) -> dict:
     return normalized
 
 
+def _variants(row, halo, usable):
+    polygon = np.asarray(row["footprint_polygon_mm"])
+    # Supplement a 10-degree grid with minimum-area rectangle axes. The latter
+    # efficiently aligns narrow elevons without sacrificing the wing's diagonal fit.
+    edges = np.roll(polygon, -1, axis=0) - polygon
+    edge_angles = (-np.degrees(np.arctan2(edges[:, 1], edges[:, 0]))) % 180
+    best_angle = min(edge_angles, key=lambda a: float(np.prod(np.ptp(_rotate(polygon, a), axis=0))))
+    angles = sorted(set(range(0, 360, 10)) | {round(float((best_angle + a) % 360), 8) for a in (0, 90, 180, 270)})
+    variants = []
+    for angle in angles:
+        raw = _rotate(polygon, angle)
+        reserve = _buffer(raw, halo)
+        minimum, maximum = reserve.min(axis=0), reserve.max(axis=0)
+        size = maximum - minimum
+        if np.all(size <= usable + 1e-7):
+            variants.append({"angle": angle, "raw": raw - minimum, "reserve": reserve - minimum,
+                             "minimum": minimum, "size": size})
+    if not variants:
+        raise ValueError(f"Part plus process clearance does not fit the bed: {row['part']}")
+    return variants
+
+
+def _cross(a, b):
+    return a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0]
+
+
+def _intersections(a, b):
+    """All boundary intersections between two convex polygons."""
+    av, bv = np.roll(a, -1, axis=0) - a, np.roll(b, -1, axis=0) - b
+    difference = b[None, :, :] - a[:, None, :]
+    divisor = _cross(av[:, None, :], bv[None, :, :])
+    safe = np.where(abs(divisor) > 1e-10, divisor, np.nan)
+    t = _cross(difference, bv[None, :, :]) / safe
+    u = _cross(difference, av[:, None, :]) / safe
+    valid = (t >= -1e-8) & (t <= 1 + 1e-8) & (u >= -1e-8) & (u <= 1 + 1e-8)
+    i, j = np.nonzero(valid)
+    return a[i] + t[i, j, None] * av[i]
+
+
+def _inside(points, polygon):
+    edges = np.roll(polygon, -1, axis=0) - polygon
+    # Counter-clockwise convex hulls: strict interior is left of every edge.
+    return np.all(_cross(edges[None, :, :], points[:, None, :] - polygon[None, :, :]) > 1e-7, axis=1)
+
+
+def _position(variant, placed, usable, gap, axis):
+    limit = usable - variant["size"]
+    frame = np.array([[0., 0.], [limit[0], 0.], limit, [0., limit[1]]])
+    nofit = []
+    candidates = [frame]
+    for previous in placed:
+        # Origins inside A (+ spacing) minus B would violate separation.
+        expanded = _buffer(previous["reserve"], gap)
+        nfp = _minkowski(expanded, -variant["reserve"])
+        candidates.extend([nfp, _intersections(nfp, frame)])
+        nofit.append(nfp)
+    # Contact between two existing parts can create feasible corners absent from
+    # either original no-fit polygon's vertices.
+    for i, a in enumerate(nofit):
+        for b in nofit[i + 1:]:
+            candidates.append(_intersections(a, b))
+    points = np.concatenate(candidates)
+    points = points[np.all(points >= -1e-7, axis=1) & np.all(points <= limit + 1e-7, axis=1)]
+    for polygon in nofit:
+        points = points[~_inside(points, polygon)]
+        if not len(points):
+            return None
+    if not len(points):
+        return None
+    # Prefer a low strip, then left alignment, while considering both shelf axes
+    # across independent search passes. All contact points are geometric, not a grid.
+    order = np.lexsort((points[:, 1 - axis], points[:, axis]))
+    return points[order[0]]
+
+
+def _pack_group(rows, variants, usable, gap, tall, order, axis):
+    bins = []
+    for row in sorted(rows, key=order):
+        isolated = tall is not None and row["size_mm"][2] > tall
+        chosen = None
+        if not isolated:
+            for index, bin_ in enumerate(bins):
+                if bin_["isolated"]:
+                    continue
+                for variant in variants[row["part"]]:
+                    position = _position(variant, bin_["placed"], usable, gap, axis)
+                    if position is None:
+                        continue
+                    extent = position + variant["size"]
+                    score = (index, extent[axis], extent[1-axis], position[axis], position[1-axis], variant["angle"])
+                    if chosen is None or score < chosen[0]:
+                        chosen = score, bin_, variant, position
+                if chosen is not None:
+                    break  # backfill the earliest compatible bed before adding one
+        if chosen is None:
+            variant = min(variants[row["part"]], key=lambda v: (v["size"][axis], v["size"][1-axis], v["angle"]))
+            bin_ = {"placed": [], "isolated": isolated}
+            bins.append(bin_)
+            chosen = None, bin_, variant, np.zeros(2)
+        _, bin_, variant, position = chosen
+        bin_["placed"].append({"row": row, "variant": variant, "position": position,
+                               "reserve": variant["reserve"] + position})
+    return bins
+
+
+def _repair_pairs(bins, variants, usable, gap):
+    """Repair a common greedy trap: two singles plus one pair can be two pairs.
+
+    This bounded augmenting-path search reevaluates both orientations instead of
+    keeping an early greedy pairing forever. Four opposing-corner arrangements
+    per angle pair are deterministic and cheap for narrow aircraft panels.
+    """
+    cache = {}
+
+    def pair(a, b):
+        key = tuple(sorted((a["part"], b["part"])))
+        if key in cache:
+            return cache[key]
+        for av in variants[a["part"]]:
+            alimit = usable - av["size"]
+            for bv in variants[b["part"]]:
+                blimit = usable - bv["size"]
+                for corner in (np.array([0., 0.]), np.array([1., 1.]), np.array([0., 1.]), np.array([1., 0.])):
+                    apos, bpos = alimit * corner, blimit * (1 - corner)
+                    aa, bb = av["reserve"] + apos, bv["reserve"] + bpos
+                    # A zero distance also describes intersecting polygons. With
+                    # zero configured gap, keep a microscopic positive separation
+                    # during this optional repair instead of accepting overlaps.
+                    if _polygon_distance(aa, bb) >= max(gap, 1e-6) - 1e-7:
+                        result = {"isolated": False, "placed": [
+                            {"row": a, "variant": av, "position": apos, "reserve": aa},
+                            {"row": b, "variant": bv, "position": bpos, "reserve": bb}]}
+                        cache[key] = result
+                        return result
+        cache[key] = None
+        return None
+
+    while True:
+        singles = [i for i, b in enumerate(bins) if len(b["placed"]) == 1 and not b["isolated"]]
+        pairs = [i for i, b in enumerate(bins) if len(b["placed"]) == 2 and not b["isolated"]]
+        replacement = None
+        for x, i in enumerate(singles):
+            for j in singles[x + 1:]:
+                a, b = bins[i]["placed"][0]["row"], bins[j]["placed"][0]["row"]
+                for k in pairs:
+                    c, d = (p["row"] for p in bins[k]["placed"])
+                    for first, second in ((c, d), (d, c)):
+                        ac = pair(a, first)
+                        if ac is None:
+                            continue
+                        bd = pair(b, second)
+                        if bd is not None:
+                            replacement = {i, j, k}, [ac, bd]
+                            break
+                    if replacement:
+                        break
+                if replacement:
+                    break
+            if replacement:
+                break
+        if replacement is None:
+            return bins
+        removed, added = replacement
+        bins = [b for i, b in enumerate(bins) if i not in removed] + added
+
+
 def _arrange(inventory: dict, project: dict) -> list:
     bed_x, bed_y, max_z = project["printer"]["bed_mm"]
     layout = project["layout"]
     margin, gap, halo, tall = (layout[k] for k in ("bed_margin_mm", "part_spacing_mm", "process_clearance_mm", "single_part_above_height_mm"))
-    usable_x, usable_y = bed_x - 2 * margin, bed_y - 2 * margin
-    groups = {}
+    usable = np.array([bed_x - 2 * margin, bed_y - 2 * margin])
+    groups, variants = {}, {}
     for row in inventory["parts"]:
+        if row["size_mm"][2] > max_z + 1e-6:
+            raise ValueError(f"Part exceeds printer height: {row['part']}")
         key = json.dumps({k: row[k] for k in ("profile", "material", "settings")}, sort_keys=True)
         groups.setdefault(key, []).append(row)
+        variants[row["part"]] = _variants(row, halo, usable)
     plates = []
     for key in sorted(groups):
-        current = None
-        # Largest footprints first makes the simple shelf packing deterministic.
-        rows = sorted(groups[key], key=lambda r: (-int(r["size_mm"][2] > tall),
-                                                  -r["size_mm"][0] * r["size_mm"][1], r["part"]))
-        for row in rows:
-            sx, sy, sz = row["size_mm"]
-            if sz > max_z + 1e-6:
-                raise ValueError(f"Part exceeds printer height: {row['part']}")
-            choices = [(0, sx + 2 * halo, sy + 2 * halo), (90, sy + 2 * halo, sx + 2 * halo)]
-            choices = [c for c in choices if c[1] <= usable_x + 1e-6 and c[2] <= usable_y + 1e-6]
-            if not choices:
-                raise ValueError(f"Part plus process clearance does not fit the bed: {row['part']}")
-            isolated = sz > tall
-            chosen = None
-            if current is not None and not isolated:
-                for rotation, width, height in choices:
-                    if current["cursor_x"] + width <= usable_x + 1e-6 and current["cursor_y"] + height <= usable_y + 1e-6:
-                        chosen = rotation, width, height
-                        break
-                if chosen is None:
-                    new_y = current["cursor_y"] + current["row_height"] + gap
-                    for rotation, width, height in choices:
-                        if new_y + height <= usable_y + 1e-6:
-                            current.update(cursor_x=0.0, cursor_y=new_y, row_height=0.0)
-                            chosen = rotation, width, height
-                            break
-            if current is None or isolated or chosen is None:
-                current = {"id": f"plate_{len(plates)+1:03d}", "profile": row["profile"], "material": row["material"],
-                           "settings": row["settings"], "placements": [], "cursor_x": 0.0, "cursor_y": 0.0, "row_height": 0.0}
-                plates.append(current)
-                chosen = choices[0]
-            rotation, width, height = chosen
-            x, y = margin + current["cursor_x"], margin + current["cursor_y"]
-            low, high = row["bounds_mm"]["min"], row["bounds_mm"]["max"]
-            rotated_min = low if rotation == 0 else [-high[1], low[0], low[2]]
-            translation = [x + halo - rotated_min[0], y + halo - rotated_min[1], -low[2]]
-            current["placements"].append({**row, "rotation_z_deg": rotation, "translation_mm": translation,
-                "placed_bounds_mm": {"min": [x + halo, y + halo, 0.0], "max": [x + width - halo, y + height - halo, sz]},
-                "reserved_bounds_mm": {"min": [x, y], "max": [x + width, y + height]}})
-            current["cursor_x"] += width + gap
-            current["row_height"] = max(current["row_height"], height)
-            if isolated:
-                current = None
-    for plate in plates:
-        for key in ("cursor_x", "cursor_y", "row_height"):
-            del plate[key]
-        plate["mass_estimate_g"] = sum(p["mass_estimate_g"] for p in plate["placements"])
-        plate["files"] = {"3mf": plate["id"] + ".3mf", "svg": plate["id"] + ".svg"}
+        rows = groups[key]
+        area = {r["part"]: _area(np.asarray(r["footprint_polygon_mm"])) for r in rows}
+        orders = [lambda r: (-area[r["part"]], r["part"]),
+                  lambda r: (-max(r["size_mm"][:2]), r["part"]),
+                  lambda r: (area[r["part"]], r["part"])]
+        lower_bound = math.ceil(sum(_area(variants[r["part"]][0]["reserve"]) for r in rows) / np.prod(usable) - 1e-10)
+        best = None
+        for order in orders:
+            for axis in (1, 0):
+                bins = _pack_group(rows, variants, usable, gap, tall, order, axis)
+                if best is None or len(bins) < len(best):
+                    best = bins
+                if len(best) == lower_bound:
+                    break
+            if len(best) == lower_bound:
+                break
+        best = _repair_pairs(best, variants, usable, gap)
+        for bin_ in best:
+            first = bin_["placed"][0]["row"]
+            plate = {"id": f"plate_{len(plates)+1:03d}", "profile": first["profile"], "material": first["material"],
+                     "settings": first["settings"], "placements": []}
+            for item in bin_["placed"]:
+                row, variant = item["row"], item["variant"]
+                position = item["position"] + margin
+                raw, reserve = variant["raw"] + position, variant["reserve"] + position
+                low, high = raw.min(axis=0), raw.max(axis=0)
+                rlow, rhigh = reserve.min(axis=0), reserve.max(axis=0)
+                translation = np.r_[position - variant["minimum"], -row["bounds_mm"]["min"][2]]
+                plate["placements"].append({**row, "rotation_z_deg": variant["angle"], "translation_mm": translation.tolist(),
+                    "placed_polygon_mm": raw.tolist(), "reserved_polygon_mm": reserve.tolist(),
+                    "placed_bounds_mm": {"min": [*low, 0.0], "max": [*high, row["size_mm"][2]]},
+                    "reserved_bounds_mm": {"min": rlow.tolist(), "max": rhigh.tolist()}})
+            plate["mass_estimate_g"] = sum(p["mass_estimate_g"] for p in plate["placements"])
+            plate["files"] = {"3mf": plate["id"] + ".3mf", "svg": plate["id"] + ".svg"}
+            plates.append(plate)
     return plates
+
+
+def _polygon_distance(a, b):
+    """Euclidean separation of convex polygons, independent of no-fit packing."""
+    a, b = np.asarray(a), np.asarray(b)
+    edges = np.concatenate([np.roll(a, -1, axis=0) - a, np.roll(b, -1, axis=0) - b])
+    normals = np.column_stack((-edges[:, 1], edges[:, 0]))
+    projections_a, projections_b = a @ normals.T, b @ normals.T
+    gaps = np.maximum(projections_a.min(axis=0) - projections_b.max(axis=0),
+                      projections_b.min(axis=0) - projections_a.max(axis=0))
+    if np.all(gaps <= 1e-10):
+        return 0.0
+
+    def point_to_edges(points, polygon):
+        start, edge = polygon, np.roll(polygon, -1, axis=0) - polygon
+        delta = points[:, None, :] - start[None, :, :]
+        fraction = np.sum(delta * edge[None, :, :], axis=2) / np.sum(edge * edge, axis=1)
+        closest = start[None, :, :] + np.clip(fraction, 0, 1)[..., None] * edge[None, :, :]
+        return float(np.min(np.linalg.norm(points[:, None, :] - closest, axis=2)))
+
+    return min(point_to_edges(a, b), point_to_edges(b, a))
+
+
+def _validate_layout(plates, inventory, project):
+    """Fail closed on missing parts, changed orientation, collision or clearance."""
+    names = [p["part"] for plate in plates for p in plate["placements"]]
+    if sorted(names) != sorted(p["part"] for p in inventory["parts"]):
+        raise ValueError("Print layout does not cover every source part exactly once")
+    layout, bed = project["layout"], np.array(project["printer"]["bed_mm"])
+    margin, halo, gap = (layout[k] for k in ("bed_margin_mm", "process_clearance_mm", "part_spacing_mm"))
+    for plate in plates:
+        for i, p in enumerate(plate["placements"]):
+            if any(p[key] != plate[key] for key in ("profile", "material", "settings")):
+                raise ValueError("Incompatible print profiles share a bed")
+            actual = _rotate(np.asarray(p["footprint_polygon_mm"]), p["rotation_z_deg"]) + np.array(p["translation_mm"][:2])
+            if not np.allclose(actual, p["placed_polygon_mm"], atol=1e-7, rtol=0):
+                raise ValueError("Placed footprint does not match the source transform")
+            if (np.any(actual.min(axis=0) < margin + halo - 1e-6)
+                    or np.any(actual.max(axis=0) > bed[:2] - margin - halo + 1e-6)
+                    or p["size_mm"][2] > bed[2] + 1e-6):
+                raise ValueError("Placed part or process clearance leaves the printer volume")
+            for q in plate["placements"][i+1:]:
+                if _polygon_distance(actual, q["placed_polygon_mm"]) < 2 * halo + gap - 1e-6:
+                    raise ValueError("Placed parts violate process clearance or spacing")
 
 
 def _outline(mesh):
@@ -213,9 +458,8 @@ def _preview(plate, bed, outlines):
     width, height = bed[:2]
     tags = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}"><rect width="{width}" height="{height}" fill="#f5f7fb" stroke="#333"/>']
     for number, p in enumerate(plate["placements"], 1):
-        bounds = p["reserved_bounds_mm"]
-        lo, hi = bounds["min"], bounds["max"]
-        tags.append(f'<rect x="{lo[0]}" y="{height-hi[1]}" width="{hi[0]-lo[0]}" height="{hi[1]-lo[1]}" fill="#e5effc" stroke="#85a2c7" stroke-width="0.5" stroke-dasharray="2 1"/>')
+        reserved_points = " ".join(f"{x:.4f},{height-y:.4f}" for x, y in p["reserved_polygon_mm"])
+        tags.append(f'<polygon points="{reserved_points}" fill="#e5effc" stroke="#85a2c7" stroke-width="0.5" stroke-dasharray="2 1"/>')
         points = " ".join(f"{x:.4f},{height-y:.4f}" for x, y in outlines[p["part"]])
         tags.append(f'<polygon points="{points}" fill="#a9ccee" stroke="#315a87" stroke-width="0.5"><title>{html.escape(p["part"])}</title></polygon>')
         lo, hi = p["placed_bounds_mm"]["min"], p["placed_bounds_mm"]["max"]
@@ -274,7 +518,7 @@ table{{border-collapse:collapse;width:100%;font-size:12px;margin:8px 0 15px}}th,
 <header><div class="eyebrow">Prepared for your final check</div><h1>{title}</h1><span class="badge">Arranged geometry · Not sliced</span>
 <p class="summary"><strong>{plan["part_count"]} parts</strong> · <strong>{len(plan["plates"])} beds</strong> · <strong>{plan["mass_estimate_g"]/1000:.2f} kg</strong> estimated printed mass</p></header>
 <div class="review-note"><p><strong>Your approval comes before printing.</strong> Review these layouts, then open each bed 3MF in PrusaSlicer to check the printer, material, supports, brim and toolpaths. This package does not send or start a print.</p>
-<p class="legend">Blue outlines show convex projections of the parts; dashed boxes reserve process clearance. Numbers match the part list. Mass excludes supports, brim and waste; print time and actual filament usage follow slicing.</p></div>
+<p class="legend">Blue outlines show convex projections of the parts; dashed outlines reserve process clearance. Numbers match the part list. Mass excludes supports, brim and waste; print time and actual filament usage follow slicing.</p></div>
 <a class="plan-link" href="print_plan.json">View plan and source provenance →</a>
 <section class="grid" aria-label="Print bed layouts">{"".join(blocks)}</section>
 </main></body></html>\n'''
@@ -294,7 +538,11 @@ def export_plan(parts_dir: Path, project: dict, output_dir: Path) -> dict:
             "part_count": inventory["part_count"], "mass_estimate_g": inventory["mass_estimate_g"],
             "estimates_exclude": ["brim", "supports", "purge", "failed prints"],
             "outstanding_validation": ["Exact printer and nozzle installed", "Manufacturer material preset and LW-ASA foaming calibration", "Support and brim extents fit reserved process clearance", "Slicer collision and toolpath preview", "Slicer print time and filament estimate"],
+            "optimization": {"algorithm": "convex_no_fit_multiheuristic_v1", "rotation_grid_deg": 10,
+                             "additional_rotations": "minimum-area rectangle axes", "orderings": 3,
+                             "packing_axes": 2, "global_optimum_claimed": False},
             "plates": _arrange(inventory, project)}
+    _validate_layout(plan["plates"], inventory, project)
     out.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f".{out.name}-", dir=out.parent))
     backup = out.with_name(f".{out.name}-previous")
@@ -304,8 +552,7 @@ def export_plan(parts_dir: Path, project: dict, output_dir: Path) -> dict:
             outlines = {}
             for placement in plate["placements"]:
                 mesh = meshes[placement["part"]].copy()
-                if placement["rotation_z_deg"] == 90:
-                    mesh = mesh[..., [1, 0, 2]] * np.array([-1, 1, 1])
+                mesh[..., :2] = _rotate(mesh[..., :2], placement["rotation_z_deg"])
                 mesh += np.array(placement["translation_mm"])
                 objects.append((placement["part"], mesh))
                 outlines[placement["part"]] = _outline(mesh)

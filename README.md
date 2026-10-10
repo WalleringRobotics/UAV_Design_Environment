@@ -45,7 +45,9 @@ set. `--no-converge` builds from the saved calibration for repeat/CI checks;
 
 The local print project arranges the exported parts for the Prusa CORE One+ and
 produces an HTML review, a 3MF and footprint preview for every bed, and a ZIP.
-The initial plan contains 42 parts on 36 beds. These are arranged models;
+The optimized plan contains 42 parts on **21 beds**, down from 36 (42% fewer),
+with the original part orientations, profiles and process clearances preserved.
+Shared beds print layer by layer. These are arranged models;
 print times and filament consumption become available after configured slicing.
 
 ```bash
