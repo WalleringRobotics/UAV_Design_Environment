@@ -16,7 +16,8 @@ import cadquery as cq
 import numpy as np
 
 from .geometry import (PodGeometry, SparLayout, TubePath, WingGeometry,
-                       cage_mount_datums, hatch_magnet_datums, pod_half_width_at_z)
+                       cage_mount_datums, hatch_magnet_datums, pod_half_width_at_z,
+                       servo_mount_datums)
 
 BIG = 5000.0
 
@@ -149,6 +150,7 @@ def build_wing_panel(
     elevon_y: tuple[float, float],
     elevon_chord_fraction: float,
     printer_fit,
+    retention_datums=None,
 ) -> list[Part]:
     """Right wing panel: printable segments (split chordwise when needed) + elevon pieces."""
     clr = fab_wing["tube_clearance_mm"]
@@ -170,16 +172,21 @@ def build_wing_panel(
     ys_servo = e0 + 0.25 * (e1 - e0)
     sp = fab_wing["servo_pocket_mm"]  # span, thickness, chord
     ps = w.point_at(ys_servo, fab_wing["servo_x_over_c"], "camber")
-    servo_pocket = box(ps[0] - sp[2] / 2, ps[0] + sp[2] / 2, ys_servo - sp[0] / 2, ys_servo + sp[0] / 2,
-                       ps[2] - sp[1] / 2, ps[2] + BIG)   # opens through the upper skin (hatch)
+    sm = servo_mount_datums(w, fab_wing, elevon_y)
+    xa,xb,ya,yb=sm['outside']; bond=fab_wing['servo_mount']['bond_clearance_mm']
+    servo_pocket = box(xa-bond,xb+bond,ya-bond,yb+bond,sm['bottom_z_mm']-bond,ps[2]+BIG)
 
     # Wire channel from root to servo
     pw0 = w.point_at(y_root, fab_wing["wire_channel_x_over_c"])
     pw1 = w.point_at(ys_servo, fab_wing["wire_channel_x_over_c"])
     wire = cylinder(pw0, pw1, fab_wing["wire_channel_mm"], extend=2.0)
+    # The spanwise channel at 52% chord previously stopped ahead of the pocket.
+    # A branch now reaches the cassette's front wire relief.
+    branch_end=np.array([sm['cavity'][0]+1,ys_servo,float(pw1[2])])
+    wire=wire.fuse(cylinder(pw1,branch_end,fab_wing['wire_channel_mm'],extend=1))
 
     # A shallow flat rebate gives the separate cover a real mating seat.
-    cover_rim = float(fab_wing.get("servo_cover_rim_mm", 5.0))
+    cover_rim = float(fab_wing.get("servo_cover_rim_mm", 5.0)) + 2.0
     cover_t = float(fab_wing.get("servo_cover_thickness_mm", 1.5))
     cover_x = sp[2] + 2 * cover_rim
     cover_y = sp[0] + 2 * cover_rim
@@ -205,6 +212,11 @@ def build_wing_panel(
         tube_hole(spars.outer, clr, extend=1.0),
         tube_hole(spars.rear_pin, clr, extend=1.0),
     ]
+    if retention_datums:
+        r=retention_datums; x=r['x_mm']; z=r['seat_z_mm']; c=r['bond_clearance_mm']
+        holes.append(box(x-r['width_mm']/2-c,x+r['width_mm']/2+c,
+                         y_root+.2-c,r['outer_y_mm']+c,
+                         z-r['anchor_depth_mm']-c,z+BIG))
 
     parts: list[Part] = []
     for i in range(n_seg):
@@ -280,8 +292,50 @@ def build_wing_panel(
                            "Bond elevon pieces with a local glass/CF doubler; no unmodelled hinge-rod bore"] if i == 0 else []))
     parts.append(Part("servo_cover_R", _clean(cover), "structural", (0, 0, 1), "wing", "R",
                       ["Tape onto the recessed seat; 0.2 mm assembly clearance; rear slot clears servo arm",
-                       "Servo attachment and horn travel require hardware fit check"]))
+                       "Cover carries no servo load; check clamp clearance and actual horn/link travel"]))
+    parts.extend(build_servo_mount(w,fab_wing,elevon_y))
     return parts
+
+
+def build_servo_mount(w, fab_wing, elevon_y):
+    """Bonded cassette and removable forward body clamp; hardware fit prototype."""
+    d=servo_mount_datums(w,fab_wing,elevon_y); cfg=fab_wing['servo_mount']
+    x0,x1,y0,y1=d['cavity'];a,b,c,e=d['outside'];z=d['floor_z_mm'];top=d['clamp_z_mm']
+    floor=box(a,b,c,e,d['bottom_z_mm'],z)
+    walls=box(a,b,c,e,z,top).cut(box(x0,x1,y0,y1,z-1,top+1))
+    tray=floor.fuse(walls)
+    # Broad relief meets the wing's new branch; do not pinch the lead at the wall.
+    tray=tray.cut(box(a-1,x0+1,d['y_mm']-4,d['y_mm']+4,z+1,top+1))
+    xc=d['bolt_x_mm']; band=5.0
+    clamp=box(xc-band/2,xc+band/2,c,e,top,top+cfg['clamp_thickness_mm'])
+    for y in d['bolt_y_mm']:
+        tray=tray.cut(cylinder([xc,y,top-cfg['insert_depth_mm']],[xc,y,top+1],cfg['insert_pilot_mm']))
+        clamp=clamp.cut(cylinder([xc,y,top-1],[xc,y,d['top_z_mm']+1],cfg['screw_clearance_mm']))
+    notes=["Prototype MKS HV6100 body clamp: verify ears, output shaft, lead exit and horn sweep on actual servo",
+           "Bond cassette flange and walls into the prepared wing pocket; validate reverse control loads",
+           "Two M2 screws/inserts per clamp; qualify pilot and screw length; use shim/pad without distorting servo case"]
+    return [Part('servo_tray_R',_clean(tray),'structural',(0,0,1),'wing','R',notes),
+            Part('servo_clamp_R',_clean(clamp),'structural',(0,0,1),'wing','R',list(notes))]
+
+
+def build_wing_retention(w, r):
+    """Own-design bridge and two bonded hardpoints, on the right root only."""
+    x=r['x_mm'];z=r['seat_z_mm'];hw=r['width_mm']/2;root=r['root_y_mm']
+    pod_anchor=box(x-hw,x+hw,r['inner_y_mm'],root-.2,z-r['anchor_depth_mm'],z)
+    wing_anchor=box(x-hw,x+hw,root+.2,r['outer_y_mm'],z-r['anchor_depth_mm'],z)
+    wing_anchor=wing_anchor.intersect(wing_loft(w,root+.2,r['outer_y_mm'],3))
+    plate=box(x-hw,x+hw,r['inner_y_mm'],r['outer_y_mm'],z+.2,z+.2+r['plate_thickness_mm'])
+    for y in r['bolt_y_mm']:
+        hole=cylinder([x,y,z-r['insert_depth_mm']],[x,y,z+1],r['insert_diameter_mm'])
+        if y<root:pod_anchor=pod_anchor.cut(hole)
+        else:wing_anchor=wing_anchor.cut(hole)
+        plate=plate.cut(cylinder([x,y,z-1],[x,y,z+r['plate_thickness_mm']+1],r['screw_clearance_mm']))
+    notes=["Prototype root retention: bonded structural hardpoints and an accessible two-screw bridge per side",
+           "Do not drill carbon tubes; verify bonded socket and full root seating before fitting bridge",
+           "Qualify M3 insert pilot/pullout and M3x8 engagement; bridge does not establish a joint load rating"]
+    return [Part('pod_root_anchor_R',_clean(pod_anchor),'structural',(0,0,1),'pod','R',list(notes)),
+            Part('wing_root_anchor_R',_clean(wing_anchor),'structural',(0,0,1),'wing','R',list(notes)),
+            Part('wing_root_bridge_R',_clean(plate),'structural',(0,0,1),'wing','R',list(notes))]
 
 
 def build_fin(w: WingGeometry, area_mm2: float, height_mm: float, sweep_deg: float = 35.0,
@@ -345,6 +399,7 @@ def build_pod(
     layout: dict,
     printer_fit,
     cage_standoff_mm: float = 6.0,
+    retention_datums=None,
 ) -> list[Part]:
     wall = podcfg["wall_mm"]
     outer, inner = _pod_lofts(pod, wall)
@@ -352,6 +407,14 @@ def build_pod(
     # Wing stub: root airfoil out to the pod side, merged into the pod
     stub = loft([w.section(-y_side), w.section(0.0), w.section(y_side)])
     body = outer.fuse(stub).cut(inner)
+    if retention_datums:
+        r=retention_datums; x=r['x_mm'];z=r['seat_z_mm'];c=r['bond_clearance_mm'];hw=r['width_mm']/2
+        for sy in (-1,1):
+            a,b=sorted([sy*(r['inner_y_mm']-c),sy*(r['root_y_mm']-.2+c)])
+            pocket=box(x-hw-c,x+hw+c,a,b,z-r['anchor_depth_mm']-c,z+c)
+            a,b=sorted([sy*(r['inner_y_mm']-.2),sy*(r['root_y_mm']+.3)])
+            passage=box(x-hw-.2,x+hw+.2,a,b,z,z+.4+r['plate_thickness_mm'])
+            body=body.cut(pocket).cut(passage)
 
     # Shared axes locate the complete isolated cage; ledges stay below its tabs.
     cm = cage_mount_datums(pod, layout, wall, cage_standoff_mm)

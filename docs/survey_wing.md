@@ -49,6 +49,11 @@ configuration.
 
 ## Print and assembly sequence
 
+Follow [the current improvement register](build_improvements.md) and
+[small first prints](first_prints.md) before the complete set. Fit the revised
+root hardpoints/bridges and servo cassette first. The original 42-part count
+and calibration are historical; use the regenerated manifest for the revision.
+
 1. Print tolerance coupons for carbon tube clearance, split alignment, cage
    dampers, motor slots and hatch magnets. Resolve the actual vendor dimensions.
 2. Obtain and measure spars, joiner and sleeves; dry-fit the spar box and wing

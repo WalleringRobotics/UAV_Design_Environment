@@ -38,6 +38,7 @@ outputs/review.zip
 outputs/design_review/
 outputs/design_review.zip
 outputs/validation/
+outputs/verification/
 *.log
 
 # Conda

@@ -32,7 +32,7 @@ from .. import design as D
 from ..payload import SurveyPayload
 from ..structures import Tube
 from . import parts as P
-from .geometry import PodGeometry, WingGeometry, battery_envelope_fits, spar_layout
+from .geometry import PodGeometry, WingGeometry, battery_envelope_fits, spar_layout, wing_retention_datums
 from .massprops import PrintedMass, printed_mass, settings_from_profile
 from .printer import Fit, PrinterProfile, check_fit, orient_to_axis
 
@@ -156,13 +156,15 @@ def build_parts(d: D.Design, fab: dict, config: str = "orin", progress=None):
             progress(msg)
 
     say("wing panel")
+    retention=wing_retention_datums(w,spars,fab['wing_retention'],g['pod_width_mm']/2)
     right = P.build_wing_panel(w, spars, fab["wing"], g["pod_width_mm"] / 2, g["elevon_y_mm"],
-                               g["elevon_chord_fraction"], fit)
+                               g["elevon_chord_fraction"], fit,retention_datums=retention)
+    right.extend(P.build_wing_retention(w,retention))
     say("fin")
     right.append(P.build_fin(w, g["fin_area_mm2"], g["fin_height_mm"]))
     say("pod")
     centre = P.build_pod(w, spars, pod, fab["pod"], fab["layout"], fit,
-                         cage_standoff_mm=payload.window_standoff_mm)
+                         cage_standoff_mm=payload.window_standoff_mm,retention_datums=retention)
     centre.extend(P.build_skid(pod, fab["pod"], fab["layout"]))
     say("cage + tray")
     centre.append(P.build_cage(pod, payload.cage_members, fab["layout"], payload.window_standoff_mm,
