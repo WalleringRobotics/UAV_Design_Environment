@@ -13,7 +13,7 @@ def export_interfaces(out):
     import numpy as np
     from uavdesign.fab.parts import Part,box
     from uavdesign.fab.printer import PrinterProfile,check_fit
-    from uavdesign.fab.build import BuiltPart,print_oriented
+    from uavdesign.fab.build import print_oriented
     from types import SimpleNamespace
     source=ROOT/'outputs/parts'
     manifest=json.loads((source/'manifest.json').read_text())
@@ -30,7 +30,11 @@ def export_interfaces(out):
         if hashlib.sha256(p.read_bytes()).hexdigest()!=manifest['file_sha256'][rel]:
             raise ValueError(f'Changed aircraft STL: {name}')
         shutil.copy2(p,out/('02_'+name+'_Rev1.stl'))
-    def load(name):return cq.importers.importStep(str(source/'step'/f'{name}.step')).val()
+    def load(name):
+        rel='step/'+name+'.step';path=source/rel
+        if hashlib.sha256(path.read_bytes()).hexdigest()!=manifest['file_sha256'][rel]:
+            raise ValueError(f'Changed aircraft STEP: {name}')
+        return cq.importers.importStep(str(path)).val()
     anchor=load('wing_root_anchor_R');bounds=anchor.BoundingBox()
     xc=(bounds.xmin+bounds.xmax)/2;root=manifest['design']['pod_width_mm']/2
     cut=box(xc-18,xc+18,root,root+44,-200,200)

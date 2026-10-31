@@ -91,7 +91,8 @@ not a vendor-certified mounting drawing.
 
 1. [Process coupons](first_prints.md): carbon fits and inserts first, then wall,
    mass and bonds. PLA may check geometry; final material is needed for load data.
-2. One servo cassette, clamp and cover. Fit a real servo, lead, horn and pushrod.
+2. [Small interface dry fits](interface_dry_fits.md): one servo cassette, clamp
+   and cover. Fit a real servo, lead, horn and pushrod.
 3. One root bridge and hardpoint set, followed by a root/pod-side representative
    assembly with real carbon and the intended bonding process.
 4. One representative joined wing section and a pod/cage fit assembly; slice,
@@ -143,7 +144,9 @@ Orin CAD mass is approximately 3.824 kg (about 156 g above the reviewed 3.668 kg
 baseline), with a resized aerodynamic span of 2.337 m. This includes feedback
 from the new mounting parts, longer/thicker joiner and extended aft pod; it is
 still a predicted mass, not weighed plastic. Sizing and CAD balance differ by
-0.028%, within the configured 1% convergence tolerance.
+0.028%, within the configured 1% convergence tolerance. The current unsliced
+packing plan uses 23 plates. That count does not establish print duration or
+confirm the slicer's walls, supports and foaming process.
 
 | Configuration | Attainable modeled CG | Static margin | Modeled cruise elevon |
 |---|---:|---:|---:|

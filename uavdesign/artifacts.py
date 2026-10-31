@@ -118,11 +118,14 @@ def export_review(result, out_dir, parts_dir):
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, dest)
         for name in ("software_spec.md", "survey_wing.md", "critical_review.md", "hardware_spec.md",
-                     "build_improvements.md", "first_prints.md"):
+                     "build_improvements.md", "first_prints.md", "interface_dry_fits.md"):
             source = root / "docs" / name
             if not source.exists():
                 raise FileNotFoundError(source)
             shutil.copy2(source, stage / name)
+        (stage / "images").mkdir()
+        for name in ("wing_root_retention_Rev1.svg", "servo_cassette_Rev1.svg"):
+            shutil.copy2(root / "docs" / "images" / name, stage / "images" / name)
         shutil.copy2(root / "requirements-lock.txt", stage / "requirements-lock.txt")
         from .integration import export_integration
         summary = {"selected": d.selected.summary(), "balance": result.balance.summary(),
@@ -162,6 +165,7 @@ def export_review(result, out_dir, parts_dir):
         # Content hashes cover inputs AND implementation, even before a checkpoint commit.
         source_files = [*root.glob("uavdesign/**/*.py"), *root.glob("scripts/**/*.py"),
                         *root.glob("integration/**/*"), *root.glob("docs/*.md"),
+                        *root.glob("docs/images/*.svg"),
                         root / "pyproject.toml", root / "requirements-lock.txt",
                         root / "environment.yml", root / "README.md",
                         root / ".github" / "workflows" / "ci.yml", *inputs]
