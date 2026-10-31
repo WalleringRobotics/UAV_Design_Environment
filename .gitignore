@@ -41,6 +41,7 @@ outputs/validation/
 outputs/verification/
 outputs/.parts-*/
 outputs/.review-*/
+outputs/.review.zip.*
 *.log
 
 # Conda

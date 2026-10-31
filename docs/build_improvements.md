@@ -139,14 +139,16 @@ for those decisions. It does not represent unperformed physical tests as passed.
 
 The saved calibration converged in two iterations. The generated assembly has
 52 valid, connected parts, all within the configured Core One build volume.
-Orin CAD mass is approximately 3.733 kg (about 65 g above the reviewed 3.668 kg
-baseline), with a resized aerodynamic span of 2.310 m. This includes feedback
-from the new mounting parts; it is still a predicted mass, not weighed plastic.
+Orin CAD mass is approximately 3.824 kg (about 156 g above the reviewed 3.668 kg
+baseline), with a resized aerodynamic span of 2.337 m. This includes feedback
+from the new mounting parts, longer/thicker joiner and extended aft pod; it is
+still a predicted mass, not weighed plastic. Sizing and CAD balance differ by
+0.028%, within the configured 1% convergence tolerance.
 
 | Configuration | Attainable modeled CG | Static margin | Modeled cruise elevon |
 |---|---:|---:|---:|
-| Orin | 231.82 mm | 9.27% | -1.74 deg (up) |
-| CM5, nearest configured bay chosen by the balance solver | 250.70 mm | 2.97% | +1.74 deg (down) |
+| Orin | 235.24 mm | 9.05% | -1.63 deg (up) |
+| CM5, nearest configured bay chosen by the balance solver | 253.88 mm | 2.90% | +1.77 deg (down) |
 
 Both cases have linear-model trim roots, but the CM5 result highlights a new
 configuration concern: the solver selects the aft battery bay and its static
@@ -156,7 +158,27 @@ configuration. Rework its layout, or use a retained mass-equivalent dummy for
 the accepted heavier installation and remeasure CG. The original 6% target
 remains unmet in both current bay choices; no CG interval is flight-approved.
 
+At the modeled 3.824 kg case, the 4 g limit and 1.5 safety factor give 150 N
+total limit lift and 225 N total ultimate lift. The modeled moment at EACH
+pod-side wing root is 33.37 N m limit and 50.06 N m ultimate. These are fixture
+design inputs for the stated distributed-load model, not approved point-load
+instructions. Axial retention, torsion, peel and buckling still need separate
+targets and test arrangements. The numerical tube screen uses assumed carbon
+allowables, so it does not close those joint tests.
+
+The current Orin endurance estimate is 48.46 minutes; it still falls short of
+the original 50-minute objective before segment-level mission validation. Hand
+launch still depends on unmeasured thrust and release capability. The static
+thrust model needs about 18.68 V loaded terminal voltage to meet its 0.6-weight
+target, so nominal/minimum pack states fail that model screen. Do not turn this
+number into a launch threshold without measurements.
+
 Exported STEP collision checks found no positive-volume interference between
 the new anchors/bridges/cassettes/clamps and the wing, pod or servo cover. This
 does not establish adhesive quality, tool access with real hardware, strength,
 creep or case-clamping behavior. Those are the next physical checks.
+
+The spar-box builder now clips each bearing lug against the pod separately
+before joining the lugs to its ring. A regression checks that both substantial
+lugs remain present at three joiner stations; this guards against a CAD-kernel
+operation returning an empty clip even though the input compound was valid.
