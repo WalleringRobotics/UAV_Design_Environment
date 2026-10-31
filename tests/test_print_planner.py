@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import math
 from pathlib import Path
 import struct
 import zipfile
@@ -224,7 +225,10 @@ def test_current_real_airframe_inventory_is_covered_with_clearance():
     _assert_clearances(plan)
     assert sorted(p["part"] for plate in plates for p in plate["placements"]) == sorted(p["part"] for p in inventory["parts"])
     assert all(p["triangle_count"] > 0 for p in inventory["parts"])
-    assert len(plates) <= 21, "Regressed to sparse bed layouts instead of polygon nesting"
+    # Keep the original >=2 parts/plate average target as the aircraft inventory
+    # grows. A literal 21 was tied to the former 42-part airframe and penalized
+    # added attachment hardware rather than detecting sparse packing.
+    assert len(plates) <= math.ceil(len(inventory['parts'])/2), "Regressed to sparse bed layouts instead of polygon nesting"
     assert sum(p["profile"] == "elevon" for p in plates) == 1
     assert sum(p["profile"] == "skid" for p in plates) == 1
 

@@ -70,6 +70,44 @@ wing:
   alignment_dowel_hole_mm: 3.2      # 3 mm CF locating pins, 16 mm long
   servo_cover_rim_mm: 5.0
   servo_cover_thickness_mm: 1.5
+  servo_mount:
+    body_height_mm: 10.0       # MKS HV6100 published width; check actual body/ears/shaft
+    body_source: https://mksservo.eu/en/category/glider-series/
+    rim_mm: 5.0
+    floor_mm: 1.5
+    clamp_x_from_front_mm: 5.0 # forward band leaves the aft arm/link region open
+    clamp_thickness_mm: 2.0
+    pad_allowance_mm: 0.2      # thin pad/shim; qualify clamp without case distortion
+    screw_clearance_mm: 2.2
+    insert_pilot_mm: 3.3       # candidate M2 insert; coupon and supplier drawing control
+    insert_depth_mm: 4.0
+    bond_clearance_mm: 0.2
+
+# Prototype positive retention: an accessible bridge with one M3 fastener into
+# a bonded pod hardpoint and one into a bonded wing hardpoint, on EACH side.
+# The carbon joiner/sleeves are not drilled. Joint proof evidence remains open.
+wing_retention:
+  width_mm: 18.0
+  pod_overlap_mm: 24.0
+  wing_overlap_mm: 32.0
+  pod_bolt_offset_mm: 13.0
+  wing_bolt_offset_mm: 18.0
+  plate_thickness_mm: 3.0
+  anchor_depth_mm: 8.0
+  insert_pilot_mm: 5.0
+  insert_depth_mm: 5.3
+  screw_clearance_mm: 3.3
+  bond_clearance_mm: 0.2
+  qualification: prototype; actual insert fit and full joint loads untested
+
+assembly_hardware:
+  wing_retention:
+    - {part: M3x8 socket screw, quantity: 4, status: verify full engagement and bottom clearance}
+    - {part: M3 insert OD5 height5, quantity: 4, status: qualify pilot and pullout in final material}
+  servo_clamps:
+    - {part: M2x6 socket screw, quantity: 4, status: prototype length; verify on actual stack}
+    - {part: M2 insert nominal OD3.5 height4, quantity: 4, status: supplier dimensions and pilot unconfirmed}
+  mass_accounting: included in the shared 80g hardware allowance until weighed; do not add twice
 
 pod:
   nose_x_mm: -175                   # x measured aft of the wing root leading edge
@@ -81,7 +119,7 @@ pod:
     - {x: 0,    w: 130, h: 165, z: -24, n: 3.0}
     - {x: 200,  w: 130, h: 160, z: -22, n: 3.0}
     - {x: 330,  w: 96,  h: 112, z: -10, n: 2.6}
-    - {x: 395,  w: 52,  h: 56,  z: 0,   n: 2.2}
+    - {x: 410,  w: 52,  h: 56,  z: 0,   n: 2.2}
   split_x_mm: [-15, 215]            # transverse print splits (glue joints with internal lips)
   lip_mm: 12
   hatches_x_mm: [[-120, 40], [60, 208], [222, 330]]   # bays: battery, payload (cage), avionics
@@ -90,7 +128,7 @@ pod:
   frame_width_mm: 10                # spar-box ring frame depth
   camera_window_d_mm: 62
   skid_width_mm: 36
-  firewall_x_mm: 395
+  firewall_x_mm: 410
   motor_slot_r_mm: [11.5, 17.0]      # radial slots fit 25-32 mm motor crosses
   motor_shaft_hole_mm: 14
 
@@ -125,7 +163,7 @@ layout:                             # component placement in the pod (x aft of r
   compute_x_mm: 290
   avionics_x_mm: 300
   esc_x_mm: 335
-  motor_x_mm: 420                   # motor CG behind the firewall
+  motor_x_mm: 435                   # motor CG behind the extended firewall
   airspeed_x_mm: -175
   # Bought-in items: [x, z] in the aircraft frame (y = 0 unless the builder
   # places them, e.g. servos sit in their wing pockets)
@@ -140,9 +178,9 @@ layout:                             # component placement in the pod (x aft of r
     reg_12v_compute:   [325, -18]
     reg_servo:         [325, -12]
     harness:           [180, -45]
-    motor:             [421, 0]
+    motor:             [436, 0]
     esc:               [335, 25]   # Talon60 envelope above compute; standoff/cooling mount to qualify
-    propeller:         [455, 0]
+    propeller:         [470, 0]       # motor/firewall/prop translated aft together by 15 mm
     compute:           [290, -5]
     nvme:              [290, -5]
     payload_harness:   [150, -40]

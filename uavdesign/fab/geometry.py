@@ -20,6 +20,47 @@ from functools import lru_cache
 import numpy as np
 
 
+def wing_retention_datums(wing, spars, cfg: dict, root_y_mm: float) -> dict:
+    """A bridge across the root joint; fasteners never pierce carbon tubes.
+
+    Separate bonded hardpoints receive the screws. Values are prototype design
+    inputs, not a load rating or a validated insert installation.
+    """
+    x = float((spars.joiner.p0[0] + spars.rear_pin.p0[0]) / 2)
+    width = float(cfg['width_mm'])
+    inner, outer = root_y_mm-float(cfg['pod_overlap_mm']), root_y_mm+float(cfg['wing_overlap_mm'])
+    z = min(wing.point_at(y,wing.x_over_c_of(y,xx),'upper')[2]
+            for y in (root_y_mm,outer) for xx in (x-width/2,x+width/2)) - .5
+    return dict(x_mm=x,root_y_mm=float(root_y_mm),seat_z_mm=float(z),
+                width_mm=width,anchor_depth_mm=float(cfg['anchor_depth_mm']),
+                inner_y_mm=float(inner),outer_y_mm=float(outer),
+                bolt_y_mm=[root_y_mm-float(cfg['pod_bolt_offset_mm']),
+                           root_y_mm+float(cfg['wing_bolt_offset_mm'])],
+                plate_thickness_mm=float(cfg['plate_thickness_mm']),
+                insert_diameter_mm=float(cfg['insert_pilot_mm']),
+                insert_depth_mm=float(cfg['insert_depth_mm']),
+                screw_clearance_mm=float(cfg['screw_clearance_mm']),
+                bond_clearance_mm=float(cfg['bond_clearance_mm']))
+
+
+def servo_mount_datums(wing, cfg: dict, elevon_y: tuple) -> dict:
+    e0,e1=elevon_y
+    y=e0+.25*(e1-e0)
+    p=wing.point_at(y,cfg['servo_x_over_c'],'camber')
+    sp=cfg['servo_pocket_mm']; mount=cfg['servo_mount']
+    floor=float(p[2]-sp[1]/2)
+    x0,x1=float(p[0]-sp[2]/2),float(p[0]+sp[2]/2)
+    y0,y1=float(y-sp[0]/2),float(y+sp[0]/2)
+    rim=float(mount['rim_mm']); t=float(mount['floor_mm'])
+    clamp_z=floor+float(mount['body_height_mm'])+float(mount['pad_allowance_mm'])
+    return dict(x_mm=float(p[0]),y_mm=float(y),floor_z_mm=floor,
+                cavity=[x0,x1,y0,y1],outside=[x0-rim,x1+rim,y0-rim,y1+rim],
+                bottom_z_mm=floor-t,clamp_z_mm=clamp_z,
+                bolt_x_mm=x0+float(mount['clamp_x_from_front_mm']),
+                bolt_y_mm=[y0-rim/2,y1+rim/2],
+                top_z_mm=clamp_z+float(mount['clamp_thickness_mm']))
+
+
 def cage_mount_datums(pod, layout: dict, wall_mm: float, standoff_mm: float) -> dict:
     """Shared cage/airframe damper axes, never independently rounded."""
     cfg = layout.get("cage_mount", {})

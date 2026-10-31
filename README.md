@@ -5,6 +5,12 @@ with the original Tarot X6 multirotor studies retained alongside it. Hardware
 inputs, sizing, printable geometry and the mapping-software interface share
 versioned YAML inputs.
 
+The current build route develops the independent aircraft directly. Start with
+[the build-improvement register](docs/build_improvements.md) and
+[the first-print coupons](docs/first_prints.md). A separate Moose build is not
+a prerequisite. Root retention and servo cassette geometry are prototype
+interfaces requiring actual fit, bond and load evidence.
+
 The existing OAK/PX4 aircraft remains supported by
 [WalleringRobotics/mapping_functionality](https://github.com/WalleringRobotics/mapping_functionality).
 The new fixed wing has its own ArduPilot Plane hardware specification, with a
