@@ -17,6 +17,10 @@ verification pack are test pieces, not flight parts. STL units are millimetres.
 
 Other bore gauges cover 3, 6 and 10 mm features. Print only the diameters you
 have matching hardware for. A measured tube can differ from its nominal size.
+Before any printing, separately dry-fit the actual 14 mm joiner inside the
+actual 16/14 mm carbon sleeve. The 14 mm printed gauge selects printed support
+bore clearance; it cannot change carbon-to-carbon tolerances. Resolve that
+hardware fit first rather than forcing a tight joiner into its sleeve.
 All gauge bores are vertical in the supplied orientation; horizontal/oblique
 bores require another representative test. Labels such as +0.3 mean 0.3 mm
 added to DIAMETER, not 0.3 mm on each side. Record a labelled candidate that

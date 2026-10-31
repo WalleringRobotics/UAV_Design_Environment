@@ -40,6 +40,10 @@ is not silently changed. Rebuild after mechanical/mass changes for new numbers.
 
 ## Prototype attachment details
 
+![Prototype root bridge and bonded anchors; fasteners omitted](images/wing_root_retention_Rev1.svg)
+
+![Prototype servo cassette and forward clamp; servo omitted](images/servo_cassette_Rev1.svg)
+
 ### Wing roots
 
 Each side has a rigid `pod_root_anchor`, `wing_root_anchor`, and
@@ -55,6 +59,20 @@ a corresponding passage. Bond quality and transfer into skin/local structure
 control performance. A metal insert's strength does not establish the surrounding
 printed or bonded joint strength. The bridge introduces a new local load path
 that must be tested as an assembly before it is accepted for flight.
+
+The subsequent margin review extends the joiner to 400 mm per side and uses
+a 14/10 mm tube (2 mm wall) rather than the former 14/12 mm tube. The sleeves
+retain their 16/14 mm section, preserving the nominal sliding interface. The
+longer overlap reduces the outer-tube bending demand; the thicker joiner
+restores the root bending screen. Actual carbon layup and allowables still need
+supplier data/test evidence. A dimensional supply candidate is
+https://www.carbon-composite.com/en/Carbon-High-Precision-Tube-2mm-OE-14mm-x-oe-10mm/CT014010
+; no stock, price or strength rating is assumed from that link.
+
+The aft pod station, firewall, motor and propeller datums move aft together by
+15 mm to recover deployed-plane clearance on the resized wing. This is a
+coherent installation translation; it does not qualify the actual folding hub
+or blade clearance.
 
 ### Servo cassette
 
@@ -116,3 +134,29 @@ launch capability; axial/torsional joint targets; final motor hub, regulator,
 carrier and connector geometry; calibrated process; and measured mission
 performance. This change provides prototype geometry and repeatable calculations
 for those decisions. It does not represent unperformed physical tests as passed.
+
+## Rebuild results for this prototype revision
+
+The saved calibration converged in two iterations. The generated assembly has
+52 valid, connected parts, all within the configured Core One build volume.
+Orin CAD mass is approximately 3.733 kg (about 65 g above the reviewed 3.668 kg
+baseline), with a resized aerodynamic span of 2.310 m. This includes feedback
+from the new mounting parts; it is still a predicted mass, not weighed plastic.
+
+| Configuration | Attainable modeled CG | Static margin | Modeled cruise elevon |
+|---|---:|---:|---:|
+| Orin | 231.82 mm | 9.27% | -1.74 deg (up) |
+| CM5, nearest configured bay chosen by the balance solver | 250.70 mm | 2.97% | +1.74 deg (down) |
+
+Both cases have linear-model trim roots, but the CM5 result highlights a new
+configuration concern: the solver selects the aft battery bay and its static
+margin is below the 4% lower value used in the existing numerical CAD screen.
+Do not interpret lighter compute as an automatically acceptable first-flight
+configuration. Rework its layout, or use a retained mass-equivalent dummy for
+the accepted heavier installation and remeasure CG. The original 6% target
+remains unmet in both current bay choices; no CG interval is flight-approved.
+
+Exported STEP collision checks found no positive-volume interference between
+the new anchors/bridges/cassettes/clamps and the wing, pod or servo cover. This
+does not establish adhesive quality, tool access with real hardware, strength,
+creep or case-clamping behavior. Those are the next physical checks.

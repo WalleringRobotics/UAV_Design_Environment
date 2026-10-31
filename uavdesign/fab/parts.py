@@ -435,7 +435,7 @@ def build_pod(
     half_in = pod.at(xr)["w"] / 2 - wall
     sockets = [box(xr - 9, xr + 9, (half_in - 18) if sy > 0 else -(half_in + wall + 3),
                    (half_in + wall + 3) if sy > 0 else -(half_in - 18), zr - 9, zr + 9) for sy in (1, -1)]
-    body = body.fuse(_fuse_all(sockets).intersect(outer))
+    body = body.fuse(_fuse_all([socket.intersect(outer) for socket in sockets]))
 
     # All small cutters in one boolean
     xcam = layout["cage_lens_axis_x_mm"]
@@ -537,27 +537,38 @@ def build_pod(
         parts.append(Part(f"pod_joint_ring{k + 1}", _clean(ring), "pod_shell", (1, 0, 0), "pod", "C",
                           ["Glue half into each neighbouring pod piece"]))
 
-    # Spar box (ASA-CF): a ring frame bonded to the shell, plus two lugs that
-    # carry the joiner at the side walls. The joiner itself is the carry-through.
+    parts.append(build_spar_box(pod,podcfg,spars))
+    return parts
+
+
+def build_spar_box(pod: PodGeometry,podcfg: dict,spars: SparLayout) -> Part:
+    """Ring and two joiner lugs; clip against one common outer envelope.
+
+    Clip each lug separately: an OCC common on a compound of disjoint boxes
+    can incorrectly return empty at some stations of this B-spline loft.
+    """
+    wall=podcfg['wall_mm'];zc=podcfg['hatch_z_above_mm']
     t = spars.joiner
     xb, zj = float(t.p0[0]), float(t.p0[2])
     frame_w = podcfg.get("frame_width_mm", 10.0)
-    outer_r = loft([pod.section(xb - 3, inset=wall + 0.2), pod.section(xb + 3, inset=wall + 0.2)], kind="smooth")
-    inner_r = loft([pod.section(xb - 3, inset=wall + frame_w), pod.section(xb + 3, inset=wall + frame_w)], kind="smooth")
-    frame = outer_r.cut(inner_r)
+    envelope=loft([pod.section(xb - 12, inset=wall + 0.2), pod.section(xb + 12, inset=wall + 0.2)],kind='smooth')
+    inner_r = loft([pod.section(xb - 12, inset=wall + frame_w), pod.section(xb + 12, inset=wall + frame_w)], kind="smooth")
+    # Derive the ring from the SAME outer surface as the lugs. Independent
+    # short/long B-spline lofts can disagree at their common boundary.
+    frame = envelope.cut(inner_r).intersect(box(xb-3,xb+3,-BIG,BIG,-BIG,BIG))
     hw = pod.at(xb)["w"] / 2 - wall
-    lugs = _fuse_all([
+    lug_boxes = [
         box(xb - 12, xb + 12, hw - 22, hw + 0.5, zj - t.od_mm / 2 - 6, zj + t.od_mm / 2 + 6),
         box(xb - 12, xb + 12, -hw - 0.5, -(hw - 22), zj - t.od_mm / 2 - 6, zj + t.od_mm / 2 + 6),
-    ]).intersect(outer_r.fuse(loft([pod.section(xb - 12, inset=wall + 0.2), pod.section(xb + 12, inset=wall + 0.2)],
-                                     kind="smooth")))
-    sbox = frame.fuse(lugs)
+    ]
+    sbox=frame
+    for lug in lug_boxes:
+        sbox=sbox.fuse(lug.intersect(envelope),tol=1e-4)
     sbox = sbox.cut(box(-BIG, BIG, -BIG, BIG, zc - 2, BIG))
     sbox = sbox.cut(cylinder([xb, -200, zj], [xb, 200, zj], t.od_mm + 0.3))
-    parts.append(Part("spar_box", _clean(sbox), "structural", (1, 0, 0), "pod", "C",
+    return Part("spar_box", _clean(sbox), "structural", (1, 0, 0), "pod", "C",
                       ["Ring frame + joiner lugs; bond into the pod mid section",
-                       "The 14 mm joiner is the carry-through — slide it through both lugs"]))
-    return parts
+                       "The 14 mm joiner is the carry-through — slide it through both lugs"])
 
 
 def build_skid(pod: PodGeometry, podcfg: dict, layout: dict) -> list[Part]:

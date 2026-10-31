@@ -115,3 +115,24 @@ def test_exported_interfaces_do_not_collide_with_wing_pod_or_cover():
                 other=shape(name)
                 if overlaps(part,other):
                     assert volume_props(part.intersect(other))[0]<1e-4,(stem,side,name)
+
+
+@pytest.mark.cad
+def test_spar_box_keeps_lugs_across_joiner_stations(interfaces):
+    """Regression for a valid but empty OCC clip that removed both load lugs."""
+    from dataclasses import replace
+    from uavdesign.fab.geometry import PodGeometry,TubePath
+    from uavdesign.fab.parts import build_spar_box,box
+    from uavdesign.fab.massprops import volume_props
+    import numpy as np
+    _,_,f,_,s,_=interfaces;pod=PodGeometry.from_dict(f['pod'])
+    for x in [207.5,216.8,222.0]:
+        j=TubePath('joiner',np.array([x,-400,6.4]),np.array([x,400,6.4]),14,10)
+        p=build_spar_box(pod,f['pod'],replace(s,joiner=j))
+        assert p.solid.isValid() and len(p.solid.Solids())==1,x
+        for sy in [-1,1]:
+            # The narrow ring ends at x +/-3. These witness regions can only
+            # contain material if the substantial side lugs survived clipping.
+            y=sy*(pod.at(x)['w']/2-f['pod']['wall_mm']-8)
+            witness=box(x+8,x+10,y-2,y+2,4,8)
+            assert volume_props(p.solid.intersect(witness))[0]>1,(x,sy)

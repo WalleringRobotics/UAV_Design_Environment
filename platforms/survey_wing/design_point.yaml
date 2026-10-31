@@ -53,7 +53,7 @@ planform:
   static_margin: 0.06          # fraction of MAC; flying-wing intermediate setting
   pod_width_mm: 130
   pod_height_mm: 165
-  pod_length_mm: 560
+  pod_length_mm: 575           # aft bulkhead extended 15 mm for resized wing/prop clearance
   fin_area_fraction: 0.06      # both tip fins / wing area
   fin_height_mm: 180
   elevon_chord_fraction: 0.22
@@ -75,7 +75,7 @@ structure:
   # the sleeve and carries the outer bending. A rear pin stops panel rotation.
   # Tube material: pultruded/roll-wrapped carbon.
   spars:
-    joiner:     {od_mm: 14.0, id_mm: 12.0, half_length_mm: 365}
+    joiner:     {od_mm: 14.0, id_mm: 10.0, half_length_mm: 400} # 2mm wall and longer overlap restore root/outer reserve
     sleeve:     {od_mm: 16.0, id_mm: 14.0}                      # pod side -> joiner tip + 15 mm
     outer_spar: {od_mm: 10.0, id_mm: 8.0, y_start_fraction: 0.25, y_end_fraction: 0.80, x_over_c: 0.28}
     rear_pin:   {od_mm: 6.0, id_mm: 4.0, half_length_mm: 135}

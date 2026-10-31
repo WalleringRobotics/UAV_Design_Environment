@@ -119,7 +119,7 @@ pod:
     - {x: 0,    w: 130, h: 165, z: -24, n: 3.0}
     - {x: 200,  w: 130, h: 160, z: -22, n: 3.0}
     - {x: 330,  w: 96,  h: 112, z: -10, n: 2.6}
-    - {x: 395,  w: 52,  h: 56,  z: 0,   n: 2.2}
+    - {x: 410,  w: 52,  h: 56,  z: 0,   n: 2.2}
   split_x_mm: [-15, 215]            # transverse print splits (glue joints with internal lips)
   lip_mm: 12
   hatches_x_mm: [[-120, 40], [60, 208], [222, 330]]   # bays: battery, payload (cage), avionics
@@ -128,7 +128,7 @@ pod:
   frame_width_mm: 10                # spar-box ring frame depth
   camera_window_d_mm: 62
   skid_width_mm: 36
-  firewall_x_mm: 395
+  firewall_x_mm: 410
   motor_slot_r_mm: [11.5, 17.0]      # radial slots fit 25-32 mm motor crosses
   motor_shaft_hole_mm: 14
 
@@ -163,7 +163,7 @@ layout:                             # component placement in the pod (x aft of r
   compute_x_mm: 290
   avionics_x_mm: 300
   esc_x_mm: 335
-  motor_x_mm: 420                   # motor CG behind the firewall
+  motor_x_mm: 435                   # motor CG behind the extended firewall
   airspeed_x_mm: -175
   # Bought-in items: [x, z] in the aircraft frame (y = 0 unless the builder
   # places them, e.g. servos sit in their wing pockets)
@@ -178,9 +178,9 @@ layout:                             # component placement in the pod (x aft of r
     reg_12v_compute:   [325, -18]
     reg_servo:         [325, -12]
     harness:           [180, -45]
-    motor:             [421, 0]
+    motor:             [436, 0]
     esc:               [335, 25]   # Talon60 envelope above compute; standoff/cooling mount to qualify
-    propeller:         [455, 0]
+    propeller:         [470, 0]       # motor/firewall/prop translated aft together by 15 mm
     compute:           [290, -5]
     nvme:              [290, -5]
     payload_harness:   [150, -40]

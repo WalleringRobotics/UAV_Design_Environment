@@ -1,5 +1,12 @@
 # Survey wing design dossier
 
+> This dossier's numerical tables describe the pre-interface-revision baseline
+> reviewed at `c05f36d`. The independent build route and revised root/servo
+> hardware are tracked in [build_improvements.md](build_improvements.md), including
+> updated mass/CG results and first-print verification. Use the latest generated
+> manifest and development checks for a changed configuration; do not combine
+> the historical 42-part/21-bed figures below with the revised assembly.
+
 This dossier explains the new fixed-wing design, the calculations behind it, and
 the evidence an independent reviewer needs to challenge it. It describes the
 current engineering model: a roughly 2.3 m printed survey wing with a rigid
