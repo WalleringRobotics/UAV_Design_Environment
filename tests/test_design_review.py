@@ -52,6 +52,37 @@ def test_release_requires_source_and_exact_file_hashes(release):
         validate_release(root, hashes)
 
 
+@pytest.mark.parametrize("name", ["servo_cassette_Rev1.svg", "wing_root_retention_Rev1.svg"])
+def test_release_drawing_provenance_survives_source_snapshot(tmp_path, name):
+    repository = tmp_path / "repository"
+    relative = f"docs/images/{name}"
+    drawing = repository / relative
+    drawing.parent.mkdir(parents=True)
+    drawing.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L1 1"/></svg>')
+    digest = hashlib.sha256(drawing.read_bytes()).hexdigest()
+
+    release = tmp_path / "release"
+    release.mkdir()
+    (release / "drawing.svg").write_bytes(drawing.read_bytes())
+    manifest = {"files": {"drawing.svg": {"sha256": digest}},
+                "source_sha256": {relative: digest}}
+    manifest_path = release / "release_manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+    manifest_digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    (release / "SHA256SUMS").write_text(
+        f"{digest}  drawing.svg\n{manifest_digest}  release_manifest.json\n")
+
+    def snapshot_hashes():
+        return {path: hashlib.sha256(data).hexdigest()
+                for path, data in source_snapshot(repository).items()}
+
+    validate_release(release, snapshot_hashes())
+    assert source_snapshot(repository)[relative] == drawing.read_bytes()
+    drawing.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg"/>')
+    with pytest.raises(ValueError, match=f"source changed.*{name}"):
+        validate_release(release, snapshot_hashes())
+
+
 def test_release_rejects_unlisted_artifacts(release):
     root, hashes = release
     (root / "stale.png").write_bytes(b"old picture")

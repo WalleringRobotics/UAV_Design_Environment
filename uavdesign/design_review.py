@@ -32,7 +32,7 @@ SOURCE_DIRS = ("uavdesign", "scripts", "tests", "platforms", "payload", "mission
                "integration", "print_projects", "docs", ".github/workflows")
 SOURCE_FILES = ("README.md", "pyproject.toml", "requirements.txt", "requirements-lock.txt",
                 "environment.yml", ".gitignore")
-SOURCE_SUFFIXES = {".py", ".yaml", ".yml", ".md", ".ipynb", ".json", ".toml", ".txt"}
+SOURCE_SUFFIXES = {".py", ".yaml", ".yml", ".md", ".ipynb", ".json", ".toml", ".txt", ".svg"}
 STYLE = """
 :root{color-scheme:light;font:17px/1.65 system-ui,sans-serif;color:#203d4f;background:#eef3f6}
 *{box-sizing:border-box}body{max-width:1200px;margin:0 auto;padding:36px 30px 70px}
